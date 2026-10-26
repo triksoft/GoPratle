@@ -1,0 +1,12 @@
+import { categoryLabel, type RequirementForm } from '@/types/requirement';
+
+type Props = { form: RequirementForm; onEdit: (step: number) => void };
+export function Review({ form, onEdit }: Props) {
+  const date = form.dateType === 'range' ? `${form.startDate} to ${form.endDate}` : form.startDate;
+  const details = form.category === 'planner' ? [ ['Budget', `₹${(form.details as { budget: string }).budget}`], ['Expected guests', (form.details as { guestCount: string }).guestCount], ['Planning scope', (form.details as { planningScope: string }).planningScope] ] : form.category === 'performer' ? [ ['Performance type', (form.details as { performanceType: string }).performanceType], ['Duration', `${(form.details as { durationMinutes: string }).durationMinutes} minutes`], ['Equipment', (form.details as { equipmentProvided: string }).equipmentProvided] ] : [ ['Crew role', (form.details as { crewRole: string }).crewRole], ['Shift length', `${(form.details as { shiftHours: string }).shiftHours} hours`], ['Team size', (form.details as { teamSize: string }).teamSize] ];
+  return <div className="space-y-5"><div><h2 className="text-xl font-bold">Review your requirement</h2><p className="mt-1 text-slate-600">Everything look right? You can edit any section before posting.</p></div><ReviewSection title="Event basics" edit={() => onEdit(1)} values={[['Event', form.eventName], ['Type', form.eventType], ['Date', date], ['Location', form.location], ['Venue', form.venue || 'Not specified'], ['Category', form.category ? categoryLabel[form.category] : 'Not selected']]} /><ReviewSection title="Your requirements" edit={() => onEdit(2)} values={details} /><ReviewSection title="Additional notes" edit={() => onEdit(3)} values={[['Notes', form.notes || 'None']]} /></div>;
+}
+
+function ReviewSection({ title, edit, values }: { title: string; edit: () => void; values: string[][] }) {
+  return <section className="rounded-xl border border-slate-200 p-4"><div className="mb-3 flex items-center justify-between"><h3 className="font-semibold">{title}</h3><button type="button" onClick={edit} className="rounded-lg px-2 py-1 text-sm font-semibold text-indigo-700 hover:bg-indigo-50">Edit</button></div><dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">{values.map(([key, value]) => <div key={key}><dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{key}</dt><dd className="mt-0.5 break-words text-sm text-slate-800">{value}</dd></div>)}</dl></section>;
+}
