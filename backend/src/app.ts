@@ -4,7 +4,10 @@ import mongoose from 'mongoose';
 import { requirementRouter, type RequirementRepository } from './routes/requirements.js';
 
 export function createApp(options: { allowedOrigins?: string[]; repository?: RequirementRepository } = {}) {
-  const allowedOrigins = options.allowedOrigins ?? (process.env.CLIENT_ORIGINS ?? 'http://localhost:3000').split(',').map(origin => origin.trim()).filter(Boolean);
+  const configuredOrigins = (process.env.CLIENT_ORIGINS ?? 'http://localhost:3000').split(',').map(origin => origin.trim()).filter(Boolean);
+  // The production Vercel origin is intentionally exact, never a wildcard.
+  const productionFrontendOrigin = 'https://go-pratle-lovat.vercel.app';
+  const allowedOrigins = options.allowedOrigins ?? [...new Set([...configuredOrigins, productionFrontendOrigin])];
   const corsOptions: CorsOptions = {
     origin(origin, callback) {
       if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
