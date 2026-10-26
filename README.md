@@ -137,7 +137,7 @@ API tests use a repository double for deterministic route coverage; the actual M
 ### Backend on Render
 
 1. Push this repository to GitHub and create a Render **Web Service** from it, or use `backend/render.yaml` as a Blueprint.
-2. Set root directory to `backend`, build command to `npm ci && npm run build`, and start command to `npm start`.
+2. Set root directory to `backend`, build command to `npm ci --include=dev && npm run build`, and start command to `npm start`.
 3. Add `MONGODB_URI` from Atlas and set `CLIENT_ORIGINS` to the exact Vercel URL, for example `https://your-project.vercel.app` (no trailing slash).
 4. Deploy, then open `https://your-api.onrender.com/api/health`. Only continue once it reports `database: "connected"`.
 
