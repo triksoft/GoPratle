@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import dayGridPlugin from '@fullcalendar/react/daygrid';
 import listPlugin from '@fullcalendar/react/list';
+import classicThemePlugin from '@fullcalendar/react/themes/classic';
 import { RequirementDetailModal } from '@/components/RequirementDetailModal';
 import { fetchRequirements } from '@/lib/api';
 import type { Category, StoredRequirement } from '@/types/requirement';
@@ -42,7 +43,6 @@ export default function CalendarPage() {
   const [requirements, setRequirements] = useState<StoredRequirement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [skippedCount, setSkippedCount] = useState(0);
   const [selectedReq, setSelectedReq] = useState<StoredRequirement | null>(null);
 
   useEffect(() => {
@@ -58,43 +58,42 @@ export default function CalendarPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Map requirements to FullCalendar events safely
-  let skipped = 0;
-  const events = requirements
-    .filter(req => {
-      if (!req.startDate || !/^\d{4}-\d{2}-\d{2}$/.test(req.startDate)) {
-        skipped++;
-        return false;
-      }
-      return true;
-    })
-    .map(req => {
-      const colors = categoryColors[req.category as Category] || {
-        bg: '#64748b',
-        border: '#475569'
-      };
-
-      const isRange = req.dateType === 'range' && req.endDate && /^\d{4}-\d{2}-\d{2}$/.test(req.endDate);
-
-      return {
-        id: req._id,
-        title: `${req.eventName} (${req.eventType})`,
-        start: req.startDate,
-        end: isRange ? getNextDayStr(req.endDate) : undefined, // FullCalendar end date is exclusive for all-day events
-        allDay: true,
-        backgroundColor: colors.bg,
-        borderColor: colors.border,
-        textColor: '#ffffff',
-        extendedProps: {
-          requirement: req
+  // Map requirements to FullCalendar events safely using useMemo (avoiding state mutation during render)
+  const { events, skippedCount } = useMemo(() => {
+    let skipped = 0;
+    const mapped = requirements
+      .filter(req => {
+        if (!req.startDate || !/^\d{4}-\d{2}-\d{2}$/.test(req.startDate)) {
+          skipped++;
+          return false;
         }
-      };
-    });
+        return true;
+      })
+      .map(req => {
+        const colors = categoryColors[req.category as Category] || {
+          bg: '#64748b',
+          border: '#475569'
+        };
 
-  // Track skipped malformed count
-  if (skipped !== skippedCount && !loading) {
-    setSkippedCount(skipped);
-  }
+        const isRange = req.dateType === 'range' && req.endDate && /^\d{4}-\d{2}-\d{2}$/.test(req.endDate);
+
+        return {
+          id: req._id,
+          title: `${req.eventName} (${req.eventType})`,
+          start: req.startDate,
+          end: isRange ? getNextDayStr(req.endDate) : undefined, // FullCalendar end date is exclusive for all-day events
+          allDay: true,
+          backgroundColor: colors.bg,
+          borderColor: colors.border,
+          textColor: '#ffffff',
+          extendedProps: {
+            requirement: req
+          }
+        };
+      });
+
+    return { events: mapped, skippedCount: skipped };
+  }, [requirements]);
 
   const handleEventClick = (info: any) => {
     info.jsEvent.preventDefault();
@@ -178,7 +177,7 @@ export default function CalendarPage() {
         ) : (
           <div className="calendar-wrapper">
             <FullCalendar
-              plugins={[dayGridPlugin, listPlugin]}
+              plugins={[dayGridPlugin, listPlugin, classicThemePlugin]}
               initialView="dayGridMonth"
               headerToolbar={{
                 left: 'prev,next today',

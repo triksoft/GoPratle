@@ -12,16 +12,81 @@ type Props = {
 const SAMPLE_PROMPT =
   'I need a DJ and decorator for a birthday party in Bangalore next Saturday for 100 guests with a budget of ₹80,000.';
 
+interface ErrorState {
+  title: string;
+  message: string;
+  code?: string;
+  isRetryable: boolean;
+}
+
+function resolveFriendlyError(err: any): ErrorState {
+  const code = err?.code;
+  const status = err?.status;
+  const rawMsg = String(err?.message || '').toLowerCase();
+
+  // 1. Missing / unconfigured Gemini key
+  if (code === 'AI_CONFIG_MISSING' || status === 503 || rawMsg.includes('not configured')) {
+    return {
+      title: 'AI Assistant Not Configured',
+      message: 'The AI assistant is currently not configured. Please complete the event form manually.',
+      code: 'AI_CONFIG_MISSING',
+      isRetryable: false
+    };
+  }
+
+  // 2. Quota / rate limit reached
+  if (code === 'AI_LIMIT_REACHED' || status === 429 || rawMsg.includes('usage limit') || rawMsg.includes('quota')) {
+    return {
+      title: 'AI Usage Limit Reached',
+      message: 'The AI assistant has temporarily reached its usage limit. Please complete the event form manually.',
+      code: 'AI_LIMIT_REACHED',
+      isRetryable: true
+    };
+  }
+
+  // 3. Temporary network / timeout failure
+  if (code === 'AI_NETWORK_ERROR' || status === 504 || rawMsg.includes('timed out') || rawMsg.includes('network')) {
+    return {
+      title: 'Connection Timed Out',
+      message: 'The AI request timed out or encountered a network issue. You can retry or complete the form manually.',
+      code: 'AI_NETWORK_ERROR',
+      isRetryable: true
+    };
+  }
+
+  // 4. Invalid AI response
+  if (code === 'AI_PARSE_FAILED' || status === 422 || rawMsg.includes('could not structure')) {
+    return {
+      title: 'Could Not Structure Brief',
+      message: 'The AI assistant could not structure the event details. Please complete the event form manually.',
+      code: 'AI_PARSE_FAILED',
+      isRetryable: true
+    };
+  }
+
+  // Default provider fallback
+  return {
+    title: 'AI Assistant Temporarily Unavailable',
+    message: err?.message || 'The AI assistant is temporarily unavailable. Please complete the event form manually.',
+    code: code || 'AI_SERVICE_ERROR',
+    isRetryable: true
+  };
+}
+
 export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<{ message: string; code?: string } | null>(null);
+  const [error, setError] = useState<ErrorState | null>(null);
   const [successInfo, setSuccessInfo] = useState<{ missingFields: string[]; applied: boolean } | null>(null);
 
   const handleGenerate = async () => {
     const trimmed = description.trim();
     if (!trimmed) {
-      setError({ message: 'Please describe your event before generating details.' });
+      setError({
+        title: 'Description Required',
+        message: 'Please describe your event before generating details.',
+        isRetryable: false
+      });
       return;
     }
 
@@ -38,13 +103,8 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
       onApplyDetails(result.extracted, result.suggestedStep || 1);
     } catch (err: any) {
       // Retain description on failure
-      const message =
-        err?.message ||
-        'The AI assistant has temporarily reached its usage limit. Please complete the event form manually.';
-      setError({
-        message,
-        code: err?.code
-      });
+      const resolved = resolveFriendlyError(err);
+      setError(resolved);
     } finally {
       setLoading(false);
     }
@@ -125,17 +185,8 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
           Optional • Manual form below remains fully available anytime
         </span>
 
+        {/* Primary Action Button only (avoids confusing duplicate Continue manually buttons) */}
         <div className="flex items-center gap-2">
-          {error && (
-            <button
-              type="button"
-              onClick={handleContinueManually}
-              className="rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
-            >
-              Continue manually
-            </button>
-          )}
-
           <button
             type="button"
             onClick={handleGenerate}
@@ -175,7 +226,7 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
         </div>
       </div>
 
-      {/* Error state */}
+      {/* Specific Friendly Error Alert with Single Continue Manually Action */}
       {error && (
         <div
           role="alert"
@@ -186,19 +237,22 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
               ⚠
             </span>
             <div className="flex-1">
-              <p className="font-semibold text-amber-950">{error.message}</p>
-              <div className="mt-2.5 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleGenerate}
-                  className="rounded-lg bg-amber-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-700 transition"
-                >
-                  Retry AI
-                </button>
+              <p className="font-semibold text-amber-950">{error.title}</p>
+              <p className="mt-0.5 text-xs text-amber-900">{error.message}</p>
+              <div className="mt-3 flex items-center gap-2">
+                {error.isRetryable && (
+                  <button
+                    type="button"
+                    onClick={handleGenerate}
+                    className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 transition"
+                  >
+                    Retry AI
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleContinueManually}
-                  className="rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100 transition"
+                  className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 transition"
                 >
                   Continue manually
                 </button>

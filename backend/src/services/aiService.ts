@@ -131,6 +131,15 @@ export function classifyAiError(error: unknown): 'QUOTA_LIMIT' | 'TIMEOUT' | 'IN
     ) {
       return 'QUOTA_LIMIT';
     }
+    if (
+      msg.includes('api_key') ||
+      msg.includes('api key') ||
+      msg.includes('apikey') ||
+      err.status === 401 ||
+      err.status === 403
+    ) {
+      return 'CONFIG_MISSING';
+    }
     if (msg.includes('json') || msg.includes('parse')) {
       return 'INVALID_JSON';
     }

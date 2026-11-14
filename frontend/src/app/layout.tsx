@@ -1,11 +1,18 @@
 import type { Metadata } from 'next';
+import '@fullcalendar/react/skeleton.css';
+import '@fullcalendar/react/themes/classic/theme.css';
+import '@fullcalendar/react/themes/classic/palette.css';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'GoPratle | Post an event requirement',
-  description: 'Tell GoPratle exactly what your event needs.'
+  title: 'GoPratle | AI Event Assistant & Requirements Platform',
+  description: 'AI-assisted event requirements, management dashboard, and event schedule calendar.'
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body>{children}</body></html>;
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  );
 }
