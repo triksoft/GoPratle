@@ -1,10 +1,14 @@
 export const categories = ['planner', 'performer', 'crew'] as const;
 export type Category = (typeof categories)[number];
 
+export const requirementStatuses = ['new', 'reviewing', 'contacted', 'confirmed', 'closed'] as const;
+export type RequirementStatus = (typeof requirementStatuses)[number];
+
 export type PlannerDetails = { budget: number; guestCount: number; planningScope: 'Full planning' | 'Partial planning' | 'Day-of coordination' };
 export type PerformerDetails = { performanceType: string; durationMinutes: number; equipmentProvided: 'Yes, fully provided' | 'Partially provided' | 'No, provider should bring it' };
 export type CrewDetails = { crewRole: string; shiftHours: number; teamSize: number };
 export type RequirementDetails = PlannerDetails | PerformerDetails | CrewDetails;
+
 export type RequirementInput = {
   eventName: string;
   eventType: string;
@@ -17,4 +21,12 @@ export type RequirementInput = {
   details: RequirementDetails;
   notes?: string;
   clientSubmissionId: string;
+  status?: RequirementStatus;
+};
+
+export type StoredRequirementDoc = RequirementInput & {
+  _id: string;
+  status: RequirementStatus;
+  createdAt: string | Date;
+  updatedAt: string | Date;
 };
