@@ -92,6 +92,20 @@ export type AiExtractResponse = {
   suggestedStep: number;
 };
 
+export type ChatMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+export type AiChatResponse = {
+  assistantMessage: string;
+  quickReplies: string[];
+  extracted: AiExtractResponse['extracted'];
+  missingFields: string[];
+  isReadyForReview: boolean;
+  suggestedStep: number;
+};
+
 export const categoryLabel: Record<Category, string> = {
   planner: 'Event Planner',
   performer: 'Performer',

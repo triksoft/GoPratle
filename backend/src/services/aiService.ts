@@ -10,6 +10,11 @@ export interface AiExtractionResult {
 }
 
 export type AiGeneratorFn = (description: string, today: string) => Promise<string>;
+export type AiChatGeneratorFn = (
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  today: string,
+  currentExtracted?: any
+) => Promise<string>;
 
 export const GEMINI_TIMEOUT_MS = 45000;
 
@@ -248,7 +253,7 @@ export function classifyAiError(error: unknown): AiErrorClassification {
   return 'OTHER';
 }
 
-export async function defaultGeminiGenerator(description: string, today: string): Promise<string> {
+export async function callGeminiWithFallback(contents: string, systemInstruction: string): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || !apiKey.trim() || apiKey === 'your_actual_gemini_api_key_from_google_ai_studio') {
     const error = new Error('GEMINI_API_KEY is not configured.');
@@ -257,43 +262,6 @@ export async function defaultGeminiGenerator(description: string, today: string)
   }
 
   const ai = new GoogleGenAI({ apiKey });
-
-  const systemInstruction = `You are an AI assistant for GoPratle event planning.
-Extract structured event requirements from the user's natural language brief into strict JSON.
-Today's date is: ${today} (YYYY-MM-DD). If relative dates are mentioned (e.g. "tomorrow", "this weekend", "next Saturday"), calculate the exact YYYY-MM-DD date relative to today.
-
-Expected JSON output format:
-{
-  "eventName": "Event title",
-  "eventType": "Birthday party | Wedding | Corporate event | Concert | etc.",
-  "dateType": "single" | "range",
-  "startDate": "YYYY-MM-DD or empty string",
-  "endDate": "YYYY-MM-DD or empty string",
-  "location": "City or area, e.g. Bangalore",
-  "venue": "Specific venue name or empty string",
-  "category": "planner" | "performer" | "crew",
-  "details": {
-    // If category is "planner":
-    // "budget": numeric string or number,
-    // "guestCount": numeric string or number,
-    // "planningScope": "Full planning" | "Partial planning" | "Day-of coordination"
-
-    // If category is "performer":
-    // "performanceType": string (e.g. "DJ", "Band", "Singer"),
-    // "durationMinutes": numeric string or number,
-    // "equipmentProvided": "Yes, fully provided" | "Partially provided" | "No, provider should bring it"
-
-    // If category is "crew":
-    // "crewRole": string (e.g. "Sound engineer", "Decorator", "Lighting tech"),
-    // "shiftHours": numeric string or number,
-    // "teamSize": numeric string or number
-  },
-  "notes": "Any other context, preferences, or secondary requests",
-  "missingFields": ["fieldName1", "fieldName2"] // List essential fields missing from description
-}
-
-Rule 1: Category must be one of: "planner", "performer", "crew".
-Rule 2: Never include markdown code fences or conversational text. Output pure JSON only.`;
 
   // Model fallback order:
   // GEMINI_MODEL override -> gemini-3.5-flash-lite -> gemini-3.5-flash -> gemini-3.6-flash -> gemini-3.8-flash
@@ -328,7 +296,7 @@ Rule 2: Never include markdown code fences or conversational text. Output pure J
 
       const apiPromise = ai.models.generateContent({
         model: modelName,
-        contents: description,
+        contents,
         config: {
           responseMimeType: 'application/json',
           systemInstruction,
@@ -368,6 +336,126 @@ Rule 2: Never include markdown code fences or conversational text. Output pure J
 
   // If all candidate models failed
   throw lastError;
+}
+
+export async function defaultGeminiGenerator(description: string, today: string): Promise<string> {
+  const systemInstruction = `You are an AI assistant for GoPratle event planning.
+Extract structured event requirements from the user's natural language brief into strict JSON.
+Today's date is: ${today} (YYYY-MM-DD). If relative dates are mentioned (e.g. "tomorrow", "this weekend", "next Saturday"), calculate the exact YYYY-MM-DD date relative to today.
+
+Expected JSON output format:
+{
+  "eventName": "Event title",
+  "eventType": "Birthday party | Wedding | Corporate event | Concert | etc.",
+  "dateType": "single" | "range",
+  "startDate": "YYYY-MM-DD or empty string",
+  "endDate": "YYYY-MM-DD or empty string",
+  "location": "City or area, e.g. Bangalore",
+  "venue": "Specific venue name or empty string",
+  "category": "planner" | "performer" | "crew",
+  "details": {
+    // If category is "planner":
+    // "budget": numeric string or number,
+    // "guestCount": numeric string or number,
+    // "planningScope": "Full planning" | "Partial planning" | "Day-of coordination"
+
+    // If category is "performer":
+    // "performanceType": string (e.g. "DJ", "Band", "Singer"),
+    // "durationMinutes": numeric string or number,
+    // "equipmentProvided": "Yes, fully provided" | "Partially provided" | "No, provider should bring it"
+
+    // If category is "crew":
+    // "crewRole": string (e.g. "Sound engineer", "Decorator", "Lighting tech"),
+    // "shiftHours": numeric string or number,
+    // "teamSize": numeric string or number
+  },
+  "notes": "Any other context, preferences, or secondary requests",
+  "missingFields": ["fieldName1", "fieldName2"] // List essential fields missing from description
+}
+
+Rule 1: Category must be one of: "planner", "performer", "crew".
+Rule 2: Never include markdown code fences or conversational text. Output pure JSON only.`;
+
+  return callGeminiWithFallback(description, systemInstruction);
+}
+
+export async function defaultGeminiChatGenerator(
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  today: string,
+  currentExtracted?: any
+): Promise<string> {
+  const systemInstruction = `You are GoPratle's AI Event Planning Assistant. You guide customers conversationally through planning an event and gathering all details needed for an event requirement posting.
+Today's date is: ${today} (YYYY-MM-DD). If relative dates are mentioned (e.g. "tomorrow", "this weekend", "next Saturday"), calculate the exact YYYY-MM-DD date relative to today.
+
+We are gathering event requirements to pre-fill a four-step event requirement form:
+1. Event Basics:
+   - eventName (e.g. "Rohan's 30th Birthday", "Annual Tech Summit 2026")
+   - eventType ("Birthday party", "Wedding", "Corporate event", "Concert / performance", etc.)
+   - dateType ("single" or "range")
+   - startDate ("YYYY-MM-DD")
+   - endDate ("YYYY-MM-DD" or empty if single-day)
+   - location (City or area, e.g. "Bangalore", "Mumbai")
+   - venue (Specific venue name if mentioned, else empty)
+2. Category & Category-Specific Details:
+   - category: must be one of "planner", "performer", "crew"
+   - if category is "planner":
+     - budget (numeric string or number)
+     - guestCount (numeric string or number)
+     - planningScope ("Full planning" | "Partial planning" | "Day-of coordination")
+   - if category is "performer":
+     - performanceType (e.g. "DJ", "Live Band", "Singer")
+     - durationMinutes (numeric string or number, e.g. 180)
+     - equipmentProvided ("Yes, fully provided" | "Partially provided" | "No, provider should bring it")
+   - if category is "crew":
+     - crewRole (e.g. "Sound engineer", "Decorator", "Lighting technician")
+     - shiftHours (numeric string or number)
+     - teamSize (numeric string or number)
+3. Notes:
+   - notes: Any special requests, themes, music genres, or additional context.
+
+CONVERSATION INSTRUCTIONS:
+- Review the conversation history and the details extracted so far.
+- Ask follow-up questions ONE AT A TIME based on what is missing:
+  1. What date is the event?
+  2. Which city/location?
+  3. Approximately how many guests?
+  4. What do you need help with (planner, performer, or crew)?
+  5. Any budget or venue preference?
+- Always provide 2 to 5 relevant, concise "quickReplies" (chips) that the user might click next. (e.g., date chips, city chips, category chips, guest count chips).
+- Set "isReadyForReview": true when key details (eventName or eventType, date, location, and category) are collected, or if the user asks to review/finish. If essential details are still missing, set "isReadyForReview": false.
+- Never include markdown code fences or conversational greetings outside the JSON. Return pure JSON conforming strictly to the format below.
+
+Output JSON Format:
+{
+  "assistantMessage": "Friendly follow-up question or summary",
+  "quickReplies": ["Quick reply 1", "Quick reply 2"],
+  "extracted": {
+    "eventName": "...",
+    "eventType": "...",
+    "dateType": "single" | "range",
+    "startDate": "YYYY-MM-DD",
+    "endDate": "",
+    "location": "...",
+    "venue": "",
+    "category": "planner" | "performer" | "crew" | "",
+    "details": { ... },
+    "notes": "...",
+    "missingFields": ["..."]
+  },
+  "missingFields": ["..."],
+  "isReadyForReview": boolean,
+  "suggestedStep": 1 | 2 | 3 | 4
+}`;
+
+  const conversationText = messages
+    .map(m => `${m.role === 'assistant' ? 'Assistant' : 'Customer'}: ${m.content}`)
+    .join('\n');
+
+  const prompt = `Current conversation:\n${conversationText}\n\n${
+    currentExtracted ? `Previously extracted state:\n${JSON.stringify(currentExtracted, null, 2)}\n\n` : ''
+  }Generate the JSON response following the system instructions:`;
+
+  return callGeminiWithFallback(prompt, systemInstruction);
 }
 
 export function normalizeExtractedDetails(data: any): ExtractedAiDetails {

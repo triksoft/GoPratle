@@ -58,6 +58,7 @@ export const requirementQuerySchema = z.object({
   eventType: z.string().trim().optional(),
   location: z.string().trim().optional(),
   status: z.enum(['new', 'reviewing', 'contacted', 'confirmed', 'closed']).optional(),
+  excludeStatus: z.enum(['new', 'reviewing', 'contacted', 'confirmed', 'closed']).optional(),
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'dateFrom must use YYYY-MM-DD').optional(),
   dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'dateTo must use YYYY-MM-DD').optional(),
   search: z.string().trim().optional(),

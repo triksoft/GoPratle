@@ -1,7 +1,9 @@
 import type {
+  AiChatResponse,
   AiExtractResponse,
   AiStatusResponse,
   Category,
+  ChatMessage,
   RequirementForm,
   RequirementStatus,
   RequirementsResponse,
@@ -54,6 +56,26 @@ export async function extractEventDetails(description: string): Promise<AiExtrac
   return payload as AiExtractResponse;
 }
 
+export async function sendAiChatMessage(
+  messages: ChatMessage[],
+  currentExtracted?: AiExtractResponse['extracted']
+): Promise<AiChatResponse> {
+  const response = await fetch(`${apiUrl}/api/ai/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages, currentExtracted })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new ApiError(
+      payload.message ?? 'The AI assistant encountered an issue. Please complete the event form manually.',
+      payload.code,
+      response.status
+    );
+  }
+  return payload as AiChatResponse;
+}
+
 export async function fetchAiStatus(): Promise<AiStatusResponse> {
   const response = await fetch(`${apiUrl}/api/admin/ai-status`, {
     headers: { 'Content-Type': 'application/json' }
@@ -75,6 +97,7 @@ export interface RequirementsQueryParams {
   limit?: number;
   category?: Category | '';
   status?: RequirementStatus | '';
+  excludeStatus?: RequirementStatus | '';
   eventType?: string;
   location?: string;
   dateFrom?: string;
@@ -90,6 +113,7 @@ export async function fetchRequirements(params: RequirementsQueryParams = {}): P
   if (params.limit) url.searchParams.set('limit', String(params.limit));
   if (params.category) url.searchParams.set('category', params.category);
   if (params.status) url.searchParams.set('status', params.status);
+  if (params.excludeStatus) url.searchParams.set('excludeStatus', params.excludeStatus);
   if (params.eventType) url.searchParams.set('eventType', params.eventType);
   if (params.location) url.searchParams.set('location', params.location);
   if (params.dateFrom) url.searchParams.set('dateFrom', params.dateFrom);

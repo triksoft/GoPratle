@@ -77,12 +77,16 @@ export function requirementRouter(repository: RequirementRepository = Requiremen
       });
     }
 
-    const { page, limit, category, eventType, location, status, dateFrom, dateTo, search, sortBy, sortOrder } =
+    const { page, limit, category, eventType, location, status, excludeStatus, dateFrom, dateTo, search, sortBy, sortOrder } =
       parsedQuery.data;
 
     const filter: Record<string, any> = {};
     if (category) filter.category = category;
-    if (status) filter.status = status;
+    if (status) {
+      filter.status = status;
+    } else if (excludeStatus) {
+      filter.status = { $ne: excludeStatus };
+    }
     if (eventType) filter.eventType = new RegExp(escapeRegex(eventType), 'i');
     if (location) filter.location = new RegExp(escapeRegex(location), 'i');
 

@@ -48,7 +48,7 @@ export default function CalendarPage() {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    fetchRequirements({ limit: 100 })
+    fetchRequirements({ limit: 100, excludeStatus: 'closed' })
       .then(res => {
         setRequirements(res.data || []);
       })
@@ -59,10 +59,14 @@ export default function CalendarPage() {
   }, []);
 
   // Map requirements to FullCalendar events safely using useMemo (avoiding state mutation during render)
+  // Closed events are strictly excluded from the calendar view
   const { events, skippedCount } = useMemo(() => {
     let skipped = 0;
     const mapped = requirements
       .filter(req => {
+        if (req.status === 'closed') {
+          return false;
+        }
         if (!req.startDate || !/^\d{4}-\d{2}-\d{2}$/.test(req.startDate)) {
           skipped++;
           return false;
@@ -104,7 +108,14 @@ export default function CalendarPage() {
   };
 
   const handleRequirementUpdated = (updated: StoredRequirement) => {
-    setRequirements(prev => prev.map(item => (item._id === updated._id ? updated : item)));
+    if (updated.status === 'closed') {
+      // Immediately remove closed requirement from calendar without page reload
+      setRequirements(prev => prev.filter(item => item._id !== updated._id));
+      setSelectedReq(null);
+    } else {
+      setRequirements(prev => prev.map(item => (item._id === updated._id ? updated : item)));
+      setSelectedReq(updated);
+    }
   };
 
   return (

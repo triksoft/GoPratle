@@ -87,6 +87,30 @@ describe('Requirements API (Dashboard & Calendar)', () => {
     );
   });
 
+  it('filters out closed requirements when excludeStatus=closed query param is passed', async () => {
+    const mockFindChain = {
+      sort: vi.fn().mockReturnThis(),
+      skip: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue([sampleRequirement])
+    };
+    const mockRepo = {
+      create: vi.fn(),
+      findOne: vi.fn(),
+      find: vi.fn().mockReturnValue(mockFindChain),
+      countDocuments: vi.fn().mockResolvedValue(1)
+    };
+
+    const app = createApp({ repository: mockRepo });
+    const response = await request(app).get('/api/requirements?excludeStatus=closed');
+
+    expect(response.status).toBe(200);
+    expect(mockRepo.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: { $ne: 'closed' }
+      })
+    );
+  });
+
   it('rejects invalid query parameters with 422', async () => {
     const app = createApp();
     const response = await request(app).get('/api/requirements?category=invalidCategory');

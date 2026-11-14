@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   GEMINI_TIMEOUT_MS,
   classifyAiError,
+  defaultGeminiChatGenerator,
   defaultGeminiGenerator,
   logSanitizedAiError,
   sanitizeSecretString
@@ -126,6 +127,42 @@ describe('aiService timeout, cancellation, and model fallback', () => {
 
       expect(result).toBe('{"eventName": "Custom Fallback Success"}');
       expect(invokedModels).toEqual(['custom-gemini-model', 'gemini-3.5-flash-lite']);
+    });
+
+    it('supports defaultGeminiChatGenerator with conversational history', async () => {
+      const { GoogleGenAI } = await import('@google/genai');
+
+      let receivedContents = '';
+      const mockGenerateContent = vi.fn().mockImplementation(async (params: any) => {
+        receivedContents = params.contents;
+        return {
+          text: JSON.stringify({
+            assistantMessage: 'When is your party?',
+            quickReplies: ['Next Friday'],
+            extracted: { eventType: 'Birthday' },
+            isReadyForReview: false
+          })
+        };
+      });
+
+      (GoogleGenAI as any).mockImplementation(() => ({
+        models: {
+          generateContent: mockGenerateContent
+        }
+      }));
+
+      const result = await defaultGeminiChatGenerator(
+        [
+          { role: 'assistant', content: 'What are you planning?' },
+          { role: 'user', content: 'Birthday party' }
+        ],
+        '2026-11-14',
+        { eventType: 'Birthday' }
+      );
+
+      expect(result).toContain('When is your party?');
+      expect(receivedContents).toContain('Customer: Birthday party');
+      expect(receivedContents).toContain('Previously extracted state:');
     });
 
     it('aborts upstream request and throws 45s timeout when request hangs', async () => {

@@ -1,15 +1,25 @@
 'use client';
 
-import { useState } from 'react';
-import { extractEventDetails } from '@/lib/api';
-import type { AiExtractResponse } from '@/types/requirement';
+import { useEffect, useRef, useState } from 'react';
+import { sendAiChatMessage } from '@/lib/api';
+import type { AiChatResponse, Category, ChatMessage } from '@/types/requirement';
 
 type Props = {
-  onApplyDetails: (data: AiExtractResponse['extracted'], targetStep: number) => void;
+  onApplyDetails: (data: AiChatResponse['extracted'], targetStep: number) => void;
   onContinueManually?: () => void;
 };
 
-const SAMPLE_PROMPT =
+const INITIAL_GREETING = 'Hi! I’m your GoPratle event assistant. What are you planning?';
+
+const INITIAL_QUICK_REPLIES = [
+  'Birthday party',
+  'Wedding',
+  'Corporate event',
+  'Concert / performance',
+  'Other'
+];
+
+const SAMPLE_BRIEF =
   'I need a DJ and decorator for a birthday party in Bangalore next Saturday for 100 guests with a budget of ₹80,000.';
 
 interface ErrorState {
@@ -74,221 +84,452 @@ function resolveFriendlyError(err: any): ErrorState {
 }
 
 export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
-  const [description, setDescription] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { role: 'assistant', content: INITIAL_GREETING }
+  ]);
+  const [quickReplies, setQuickReplies] = useState<string[]>(INITIAL_QUICK_REPLIES);
+  const [extractedDetails, setExtractedDetails] = useState<AiChatResponse['extracted'] | null>(null);
+  const [isReadyForReview, setIsReadyForReview] = useState(false);
+  const [suggestedStep, setSuggestedStep] = useState(1);
+  const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<ErrorState | null>(null);
-  const [successInfo, setSuccessInfo] = useState<{ missingFields: string[]; applied: boolean } | null>(null);
+  const [showSupportPanel, setShowSupportPanel] = useState(false);
+  const [appliedNotice, setAppliedNotice] = useState(false);
 
-  const handleGenerate = async () => {
-    const trimmed = description.trim();
-    if (!trimmed) {
-      setError({
-        title: 'Description Required',
-        message: 'Please describe your event before generating details.',
-        isRetryable: false
-      });
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (typeof messagesEndRef.current?.scrollIntoView === 'function') {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, loading, error, showSupportPanel]);
+
+  const handleManualRedirect = () => {
+    if (onContinueManually) {
+      onContinueManually();
+    }
+    const formElement = document.getElementById('requirement-form');
+    if (typeof formElement?.scrollIntoView === 'function') {
+      formElement.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
+  const handleSendMessage = async (textToSend: string) => {
+    const trimmed = textToSend.trim();
+    if (!trimmed || loading) return;
+
+    if (trimmed.toLowerCase() === 'need help' || trimmed.toLowerCase() === 'need help?') {
+      setShowSupportPanel(true);
       return;
     }
 
+    const nextMessages: ChatMessage[] = [
+      ...messages,
+      { role: 'user', content: trimmed }
+    ];
+
+    setMessages(nextMessages);
+    setInputText('');
     setLoading(true);
     setError(null);
-    setSuccessInfo(null);
+    setAppliedNotice(false);
 
     try {
-      const result = await extractEventDetails(trimmed);
-      setSuccessInfo({
-        missingFields: result.missingFields || [],
-        applied: true
-      });
-      onApplyDetails(result.extracted, result.suggestedStep || 1);
+      const response = await sendAiChatMessage(nextMessages, extractedDetails || undefined);
+
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', content: response.assistantMessage }
+      ]);
+      setQuickReplies(response.quickReplies && response.quickReplies.length > 0 ? response.quickReplies : []);
+      if (response.extracted) {
+        setExtractedDetails(response.extracted);
+      }
+      setIsReadyForReview(Boolean(response.isReadyForReview));
+      setSuggestedStep(response.suggestedStep || 1);
     } catch (err: any) {
-      // Retain description on failure
-      const resolved = resolveFriendlyError(err);
-      setError(resolved);
+      const friendly = resolveFriendlyError(err);
+      setError(friendly);
+      setShowSupportPanel(true);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleUseSample = () => {
-    setDescription(SAMPLE_PROMPT);
-    setError(null);
-  };
-
-  const handleContinueManually = () => {
-    setError(null);
-    if (onContinueManually) {
-      onContinueManually();
+  const handleRetryLastMessage = () => {
+    const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
+    if (lastUserMessage) {
+      // Retry with the current conversation history up to the last user message
+      const lastIndex = messages.lastIndexOf(lastUserMessage);
+      const subMessages = messages.slice(0, lastIndex + 1);
+      setLoading(true);
+      setError(null);
+      sendAiChatMessage(subMessages, extractedDetails || undefined)
+        .then(response => {
+          setMessages([
+            ...subMessages,
+            { role: 'assistant', content: response.assistantMessage }
+          ]);
+          setQuickReplies(response.quickReplies && response.quickReplies.length > 0 ? response.quickReplies : []);
+          if (response.extracted) {
+            setExtractedDetails(response.extracted);
+          }
+          setIsReadyForReview(Boolean(response.isReadyForReview));
+          setSuggestedStep(response.suggestedStep || 1);
+        })
+        .catch(err => {
+          const friendly = resolveFriendlyError(err);
+          setError(friendly);
+          setShowSupportPanel(true);
+        })
+        .finally(() => setLoading(false));
     } else {
-      const formEl = document.getElementById('requirement-form');
-      if (formEl) formEl.scrollIntoView({ behavior: 'smooth' });
+      handleSendMessage(INITIAL_QUICK_REPLIES[0]);
     }
   };
 
+  const handleReviewDetails = () => {
+    if (!extractedDetails) return;
+    onApplyDetails(extractedDetails, suggestedStep);
+    setAppliedNotice(true);
+    handleManualRedirect();
+  };
+
+  const handleResetChat = () => {
+    setMessages([{ role: 'assistant', content: INITIAL_GREETING }]);
+    setQuickReplies(INITIAL_QUICK_REPLIES);
+    setExtractedDetails(null);
+    setIsReadyForReview(false);
+    setSuggestedStep(1);
+    setInputText('');
+    setError(null);
+    setShowSupportPanel(false);
+    setAppliedNotice(false);
+  };
+
   return (
-    <section
+    <div
+      role="region"
       aria-label="Plan with AI"
-      className="relative overflow-hidden rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/80 via-white to-purple-50/60 p-5 shadow-sm sm:p-7"
+      className="card border-indigo-100 bg-gradient-to-b from-indigo-50/50 via-white to-white shadow-soft"
     >
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-indigo-100/70 pb-4">
         <div className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-sm">
-            <svg
-              className="h-4 w-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth="2"
-              stroke="currentColor"
-              aria-hidden="true"
-            >
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z"
+                strokeWidth="2"
+                d="M13 10V3L4 14h7v7l9-11h-7z"
               />
             </svg>
-          </span>
+          </div>
           <div>
-            <h2 className="text-lg font-bold text-slate-900">Plan with AI Event Assistant</h2>
-            <p className="text-xs text-slate-600">
-              Describe your event in plain English. We’ll auto-fill the form so you can review and submit faster.
+            <h2 className="text-base font-bold text-slate-900 sm:text-lg">
+              Plan with AI Event Assistant
+            </h2>
+            <p className="text-xs text-slate-500">
+              Conversational planning with instant form pre-filling.
             </p>
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleUseSample}
-          className="self-start sm:self-auto text-xs font-semibold text-indigo-700 hover:text-indigo-900 underline underline-offset-2"
-        >
-          Try sample brief
-        </button>
-      </div>
-
-      <div className="mt-4">
-        <label htmlFor="ai-event-description" className="sr-only">
-          Natural-language event description
-        </label>
-        <textarea
-          id="ai-event-description"
-          rows={3}
-          value={description}
-          onChange={e => setDescription(e.target.value)}
-          placeholder="e.g. I need a DJ and decorator for a birthday party in Bangalore next Saturday for 100 guests with a budget of ₹80,000."
-          className="w-full rounded-xl border border-slate-300 bg-white p-3.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          disabled={loading}
-        />
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <span className="text-xs text-slate-500">
-          Optional • Manual form below remains fully available anytime
-        </span>
-
-        {/* Primary Action Button only (avoids confusing duplicate Continue manually buttons) */}
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={handleGenerate}
-            disabled={loading}
-            className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-wait disabled:bg-indigo-400"
+            onClick={() => setShowSupportPanel(prev => !prev)}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition"
           >
-            {loading ? (
-              <>
-                <svg
-                  className="h-3.5 w-3.5 animate-spin text-white"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                  />
-                </svg>
-                <span>Analyzing brief…</span>
-              </>
-            ) : (
-              <>
-                <span>Generate event details</span>
-                <span aria-hidden="true">→</span>
-              </>
-            )}
+            Need help?
+          </button>
+          <button
+            type="button"
+            onClick={handleResetChat}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition"
+          >
+            Reset chat
+          </button>
+          <button
+            type="button"
+            onClick={handleManualRedirect}
+            className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 transition"
+          >
+            Skip to manual form ↓
           </button>
         </div>
       </div>
 
-      {/* Specific Friendly Error Alert with Single Continue Manually Action */}
-      {error && (
-        <div
-          role="alert"
-          className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs sm:text-sm text-amber-900"
-        >
-          <div className="flex items-start gap-2.5">
-            <span className="mt-0.5 text-amber-600 font-bold" aria-hidden="true">
-              ⚠
+      {/* Applied Notice */}
+      {appliedNotice && (
+        <div className="mt-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-800">
+          <div className="flex items-center gap-2">
+            <svg className="h-4 w-4 text-emerald-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fillRule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                clipRule="evenodd"
+              />
+            </svg>
+            <span>
+              <strong>AI pre-filled your event requirement details!</strong> Review and edit any field below.
             </span>
-            <div className="flex-1">
-              <p className="font-semibold text-amber-950">{error.title}</p>
-              <p className="mt-0.5 text-xs text-amber-900">{error.message}</p>
-              <div className="mt-3 flex items-center gap-2">
-                {error.isRetryable && (
-                  <button
-                    type="button"
-                    onClick={handleGenerate}
-                    className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 transition"
-                  >
-                    Retry AI
-                  </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAppliedNotice(false)}
+            className="font-semibold hover:underline ml-2"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Chat Messages Stream */}
+      <div className="mt-4 flex max-h-80 flex-col gap-3 overflow-y-auto rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4 sm:p-5">
+        {messages.map((msg, idx) => (
+          <div
+            key={idx}
+            className={`flex items-start gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+          >
+            {msg.role === 'assistant' && (
+              <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-xs font-bold text-white shadow-xs">
+                AI
+              </div>
+            )}
+            <div
+              className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs sm:text-sm leading-relaxed shadow-xs ${
+                msg.role === 'user'
+                  ? 'bg-indigo-600 text-white rounded-br-none'
+                  : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none'
+              }`}
+            >
+              {msg.content}
+            </div>
+          </div>
+        ))}
+
+        {loading && (
+          <div className="flex items-start gap-2.5">
+            <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-xs font-bold text-white">
+              AI
+            </div>
+            <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-none border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-xs">
+              <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-400" style={{ animationDelay: '0ms' }} />
+              <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-500" style={{ animationDelay: '150ms' }} />
+              <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-600" style={{ animationDelay: '300ms' }} />
+              <span className="ml-1 text-xs text-slate-400">GoPratle assistant is thinking...</span>
+            </div>
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Extracted Details / Review Action Banner */}
+      {extractedDetails && (isReadyForReview || extractedDetails.eventType || extractedDetails.eventName) && (
+        <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3 sm:p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-0.5">
+              <p className="text-xs font-bold uppercase tracking-wider text-indigo-700">
+                {isReadyForReview ? 'Ready to Review Details' : 'Details Captured So Far'}
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-700">
+                {extractedDetails.eventName && (
+                  <span className="inline-flex items-center rounded-md bg-white px-2 py-0.5 font-medium border border-indigo-100">
+                    {extractedDetails.eventName}
+                  </span>
                 )}
-                <button
-                  type="button"
-                  onClick={handleContinueManually}
-                  className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 transition"
-                >
-                  Continue manually
-                </button>
+                {extractedDetails.eventType && (
+                  <span className="inline-flex items-center rounded-md bg-white px-2 py-0.5 font-medium border border-indigo-100">
+                    Type: {extractedDetails.eventType}
+                  </span>
+                )}
+                {extractedDetails.startDate && (
+                  <span className="inline-flex items-center rounded-md bg-white px-2 py-0.5 font-medium border border-indigo-100">
+                    Date: {extractedDetails.startDate}
+                  </span>
+                )}
+                {extractedDetails.location && (
+                  <span className="inline-flex items-center rounded-md bg-white px-2 py-0.5 font-medium border border-indigo-100">
+                    City: {extractedDetails.location}
+                  </span>
+                )}
+                {extractedDetails.category && (
+                  <span className="inline-flex items-center rounded-md bg-indigo-600 px-2 py-0.5 font-semibold text-white">
+                    Category: {extractedDetails.category}
+                  </span>
+                )}
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={handleReviewDetails}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              Review event details →
+            </button>
           </div>
         </div>
       )}
 
-      {/* Success notification */}
-      {successInfo?.applied && (
-        <div
-          role="status"
-          className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs sm:text-sm text-emerald-900"
-        >
-          <div className="flex items-start gap-2.5">
-            <span className="mt-0.5 text-emerald-600 font-bold" aria-hidden="true">
-              ✓
-            </span>
-            <div className="flex-1">
-              <p className="font-semibold text-emerald-950">
-                AI pre-filled your event requirement details!
-              </p>
-              <p className="mt-0.5 text-xs text-emerald-800">
-                Every field in the form below remains fully editable.
-                {successInfo.missingFields.length > 0 && (
-                  <span className="block mt-1">
-                    Missing or unconfirmed info:{' '}
-                    <strong>{successInfo.missingFields.join(', ')}</strong>. Please review these steps.
-                  </span>
-                )}
-              </p>
-            </div>
+      {/* Quick Reply Chips */}
+      {!loading && quickReplies.length > 0 && (
+        <div className="mt-3">
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            Suggested replies:
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {quickReplies.map((reply, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => handleSendMessage(reply)}
+                className="rounded-full border border-indigo-200 bg-white px-3 py-1 text-xs font-medium text-indigo-700 shadow-xs transition hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                {reply}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => handleSendMessage(SAMPLE_BRIEF)}
+              className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+            >
+              Try sample brief
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowSupportPanel(true)}
+              className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800 transition hover:bg-amber-100"
+            >
+              Need help?
+            </button>
           </div>
         </div>
       )}
-    </section>
+
+      {/* Input Row */}
+      <form
+        className="mt-4 flex gap-2"
+        onSubmit={e => {
+          e.preventDefault();
+          handleSendMessage(inputText);
+        }}
+      >
+        <input
+          type="text"
+          value={inputText}
+          onChange={e => setInputText(e.target.value)}
+          placeholder="Type your event brief or answer here (e.g. DJ in Bangalore next Saturday)..."
+          disabled={loading}
+          className="flex-1 rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs sm:text-sm text-slate-900 shadow-xs transition placeholder:text-slate-400 focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60"
+        />
+        <button
+          type="submit"
+          disabled={loading || !inputText.trim()}
+          className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+        >
+          <span>Send</span>
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+          </svg>
+        </button>
+      </form>
+
+      {/* Error & Fallback Panel */}
+      {error && (
+        <div
+          role="alert"
+          className="mt-4 rounded-xl border border-rose-200 bg-rose-50/90 p-4 text-xs text-rose-800 space-y-2"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="font-semibold text-rose-950">{error.title}</p>
+              <p className="mt-0.5">{error.message}</p>
+            </div>
+            {error.code && (
+              <span className="rounded-md bg-rose-100 px-2 py-0.5 text-[10px] font-mono text-rose-700">
+                {error.code}
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            {error.isRetryable && (
+              <button
+                type="button"
+                onClick={handleRetryLastMessage}
+                disabled={loading}
+                className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-rose-700 disabled:opacity-50"
+              >
+                Retry
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleManualRedirect}
+              className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-900 shadow-xs transition hover:bg-rose-50"
+            >
+              Continue manually
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Fallback Support Panel */}
+      {showSupportPanel && (
+        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/90 p-4 sm:p-5 text-slate-800 shadow-xs">
+          <div className="flex items-start gap-3">
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-amber-200/80 text-amber-800">
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                />
+              </svg>
+            </div>
+            <div className="flex-1 space-y-1">
+              <h3 className="text-sm font-semibold text-amber-950">
+                Need help planning your event? Our team can help you complete your brief.
+              </h3>
+              <p className="text-xs text-amber-900">
+                <span className="font-semibold text-amber-950">Demo support:</span>{' '}
+                <a
+                  href="tel:+919000000000"
+                  className="font-bold underline text-amber-950 hover:text-amber-800"
+                >
+                  +91 90000 00000
+                </a>
+              </p>
+              <p className="text-[11px] text-amber-700 pt-0.5">
+                Note: This is an event-assistant demo contact line. You can also skip AI and post your requirement directly.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowSupportPanel(false)}
+              className="text-amber-600 hover:text-amber-800 text-xs font-semibold"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="mt-3 flex items-center justify-end border-t border-amber-200/60 pt-2.5">
+            <button
+              type="button"
+              onClick={handleManualRedirect}
+              className="inline-flex items-center gap-1 rounded-xl bg-amber-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-amber-700"
+            >
+              Continue with manual form →
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

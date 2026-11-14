@@ -101,4 +101,17 @@ describe('Admin Dashboard Page', () => {
 
     expect(updateSpy).toHaveBeenCalledWith(mockReq._id, 'confirmed');
   });
+
+  it('keeps Refresh button and removes duplicate Open Calendar button from header', async () => {
+    vi.spyOn(api, 'fetchRequirements').mockResolvedValueOnce(mockResponse);
+
+    render(<DashboardPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Gala Night 2026')).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('button', { name: /refresh/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /open calendar/i })).not.toBeInTheDocument();
+  });
 });

@@ -185,4 +185,101 @@ describe('AI Assistant API', () => {
     expect(response.status).toBe(422);
     expect(response.body.errors.description).toBeDefined();
   });
+
+  describe('Conversational Guided Chat API (POST /api/ai/chat)', () => {
+    it('processes messages and returns structured assistant response with quick replies', async () => {
+      const mockChatOutput = JSON.stringify({
+        assistantMessage: 'Great! What date is the birthday party scheduled for?',
+        quickReplies: ['Next Saturday', 'Next month', 'Need help'],
+        extracted: {
+          eventName: "Rohan's Birthday",
+          eventType: 'Birthday party',
+          category: 'planner'
+        },
+        missingFields: ['startDate', 'location'],
+        isReadyForReview: false,
+        suggestedStep: 1
+      });
+
+      const mockChatGenerator = vi.fn().mockResolvedValue(mockChatOutput);
+      const app = createApp({ aiOptions: { chatGenerator: mockChatGenerator } });
+
+      const response = await request(app)
+        .post('/api/ai/chat')
+        .send({
+          messages: [
+            { role: 'assistant', content: 'Hi! What are you planning?' },
+            { role: 'user', content: 'Birthday party for Rohan' }
+          ]
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.assistantMessage).toBe('Great! What date is the birthday party scheduled for?');
+      expect(response.body.quickReplies).toEqual(['Next Saturday', 'Next month', 'Need help']);
+      expect(response.body.extracted.eventType).toBe('Birthday party');
+      expect(response.body.isReadyForReview).toBe(false);
+      expect(mockChatGenerator).toHaveBeenCalledOnce();
+    });
+
+    it('returns isReadyForReview true when essential fields are provided', async () => {
+      const mockChatOutput = JSON.stringify({
+        assistantMessage: 'I have all details! Please click Review event details to verify.',
+        quickReplies: [],
+        extracted: {
+          eventName: 'Tech Meetup 2026',
+          eventType: 'Meetup',
+          dateType: 'single',
+          startDate: '2026-11-20',
+          location: 'Bangalore',
+          category: 'performer',
+          details: { performanceType: 'DJ' }
+        },
+        missingFields: [],
+        isReadyForReview: true,
+        suggestedStep: 2
+      });
+
+      const mockChatGenerator = vi.fn().mockResolvedValue(mockChatOutput);
+      const app = createApp({ aiOptions: { chatGenerator: mockChatGenerator } });
+
+      const response = await request(app)
+        .post('/api/ai/chat')
+        .send({
+          messages: [
+            { role: 'user', content: 'Tech Meetup with DJ in Bangalore on 2026-11-20' }
+          ]
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.isReadyForReview).toBe(true);
+      expect(response.body.suggestedStep).toBe(2);
+      expect(response.body.extracted.startDate).toBe('2026-11-20');
+    });
+
+    it('handles quota rate limit on chat with HTTP 429 AI_LIMIT_REACHED', async () => {
+      const quotaError = Object.assign(new Error('Quota limit reached'), {
+        status: 429,
+        code: 'RESOURCE_EXHAUSTED'
+      });
+      const mockChatGenerator = vi.fn().mockRejectedValue(quotaError);
+      const app = createApp({ aiOptions: { chatGenerator: mockChatGenerator } });
+
+      const response = await request(app)
+        .post('/api/ai/chat')
+        .send({
+          messages: [{ role: 'user', content: 'Anniversary party' }]
+        });
+
+      expect(response.status).toBe(429);
+      expect(response.body.code).toBe('AI_LIMIT_REACHED');
+      expect(response.body.message).toContain('Please complete the event form manually.');
+    });
+
+    it('validates empty messages on chat endpoint with 422', async () => {
+      const app = createApp();
+      const response = await request(app).post('/api/ai/chat').send({ messages: [] });
+
+      expect(response.status).toBe(422);
+    });
+  });
 });

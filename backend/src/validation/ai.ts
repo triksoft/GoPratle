@@ -39,3 +39,28 @@ export const extractedAiDetailsSchema = z.object({
 });
 
 export type ExtractedAiDetails = z.infer<typeof extractedAiDetailsSchema>;
+
+export const chatMessageSchema = z.object({
+  role: z.enum(['user', 'assistant']),
+  content: z.string().trim().min(1, 'Message content cannot be empty.').max(3000, 'Message is too long.')
+});
+
+export type ChatMessage = z.infer<typeof chatMessageSchema>;
+
+export const chatRequestSchema = z.object({
+  messages: z.array(chatMessageSchema).min(1, 'At least one message is required.'),
+  currentExtracted: z.record(z.string(), z.any()).optional()
+});
+
+export type ChatRequest = z.infer<typeof chatRequestSchema>;
+
+export const chatResponseSchema = z.object({
+  assistantMessage: z.string().min(1),
+  quickReplies: z.array(z.string()).default([]),
+  extracted: extractedAiDetailsSchema,
+  missingFields: z.array(z.string()).default([]),
+  isReadyForReview: z.boolean().default(false),
+  suggestedStep: z.number().int().min(1).max(4).default(1)
+});
+
+export type ChatResponse = z.infer<typeof chatResponseSchema>;

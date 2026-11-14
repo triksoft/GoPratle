@@ -37,12 +37,17 @@ Google Gemini API    MongoDB Atlas
    - Step 4: Review and submit with idempotent UUID enforcement (`X-Idempotency-Key`).
    - Changing categories safely resets category details to prevent stale attributes from being saved.
 
-2. **Plan with AI Assistant**:
-   - Optional natural-language input area above the form.
-   - Example brief: *"I need a DJ and decorator for a birthday party in Bangalore next Saturday for 100 guests with a budget of ₹80,000."*
-   - Sends brief to backend endpoint `POST /api/ai/extract-event-details`.
-   - Pre-fills form fields (event basics, category, details, notes), indicates missing fields, and navigates user to the appropriate step.
-   - Retains 100% field editability and preserves manual category-clearing logic.
+2. **Guided Event-Planning Chat Assistant**:
+   - Interactive guided conversational chat assistant directly above the event form.
+   - Initial greeting: *"Hi! I’m your GoPratle event assistant. What are you planning?"*
+   - Dynamic quick-reply chips (*Birthday party*, *Wedding*, *Corporate event*, *Concert / performance*, *Other*).
+   - Conversational follow-up questions tailored to missing data (date, city, guest count, category, budget/venue).
+   - Backend conversational endpoint `POST /api/ai/chat` accumulates conversation history, validates output with Zod, and updates extracted requirements.
+   - **Review event details**: Once core details are captured, an action button pre-fills the existing four-step form and scrolls to the wizard for final customer review.
+   - **Demo Support Fallback**: If Gemini encounters errors, provider unavailability, or if the user clicks *Need help*, a dedicated fallback panel appears:
+     > *"Need help planning your event? Our team can help you complete your brief."*
+     > **Demo support: +91 90000 00000**
+   - Retains 100% field editability and keeps the manual four-step form accessible in every state.
 
 3. **Resilient AI Availability & Quota Handling**:
    - When Gemini hits rate limits, quotas, token limits, `RESOURCE_EXHAUSTED`, or HTTP 429:
@@ -72,7 +77,10 @@ Google Gemini API    MongoDB Atlas
 
 5. **Real Event Calendar (`/dashboard/calendar`)**:
    - Powered by FullCalendar v7 (`dayGridMonth` and `listMonth` views).
-   - Loads real requirements from `GET /api/requirements`.
+   - Loads real requirements from `GET /api/requirements?limit=100&excludeStatus=closed`.
+   - **Excludes Closed Requirements**: Requirements marked with status `closed` remain in the dashboard table for record-keeping, but are excluded from the calendar view via both backend API filtering and defensive client filtering.
+   - **Instant Removal on Status Change**: Updating a requirement to `closed` in the event detail modal removes it from the calendar immediately without requiring a page reload.
+   - Active requirement statuses (`new`, `reviewing`, `contacted`, `confirmed`) remain clearly visible on the calendar.
    - Single-day events display as one-day blocks; date ranges display across their full multi-day duration.
    - Category-colored event badges:
      - **Planner**: Indigo (`#4f46e5`)
@@ -86,8 +94,8 @@ Google Gemini API    MongoDB Atlas
 ## Data Flow
 
 ```text
-1. AI ASSISTANT FLOW:
-User types brief ──> POST /api/ai/extract-event-details ──> Gemini ──> Zod validate ──> Form pre-fill ──> Step 2
+1. GUIDED AI CHAT FLOW:
+User conversation ──> POST /api/ai/chat ──> Gemini ──> Zod validate ──> Review event details ──> Form pre-fill
 
 2. MANUAL WIZARD FLOW:
 User input ──> Client validation ──> UUID key ──> POST /api/requirements ──> MongoDB Atlas
@@ -97,7 +105,8 @@ User input ──> Client validation ──> UUID key ──> POST /api/requirem
 Status dropdown ──> PATCH /api/requirements/:id/status ──> MongoDB update
 
 4. CALENDAR FLOW:
-/dashboard/calendar ──> GET /api/requirements?limit=100 ──> FullCalendar month & list render
+/dashboard/calendar ──> GET /api/requirements?excludeStatus=closed ──> FullCalendar month & list render
+Status update to closed ──> Immediate local calendar event eviction
 ```
 
 ---
@@ -197,7 +206,49 @@ Extracts structured event requirement details from freeform text using Gemini.
 
 ---
 
-### 3. `GET /api/admin/ai-status`
+### 3. `POST /api/ai/chat`
+Conversational endpoint for the guided event assistant. Accepts multi-turn messages and previously extracted state, returning the assistant's next message, quick reply chips, updated structured extraction, and review status.
+
+**Request**:
+```json
+{
+  "messages": [
+    { "role": "assistant", "content": "Hi! I’m your GoPratle event assistant. What are you planning?" },
+    { "role": "user", "content": "Birthday party for Rohan in Bangalore" }
+  ],
+  "currentExtracted": {
+    "eventType": "Birthday party"
+  }
+}
+```
+
+**Success Response (HTTP 200)**:
+```json
+{
+  "assistantMessage": "Awesome! What date will Rohan's birthday party take place?",
+  "quickReplies": ["Next Saturday", "Next month", "Need help"],
+  "extracted": {
+    "eventName": "Rohan's Birthday Party",
+    "eventType": "Birthday party",
+    "dateType": "single",
+    "startDate": "",
+    "endDate": "",
+    "location": "Bangalore",
+    "venue": "",
+    "category": "planner",
+    "details": {},
+    "notes": "",
+    "missingFields": ["startDate"]
+  },
+  "missingFields": ["startDate"],
+  "isReadyForReview": false,
+  "suggestedStep": 1
+}
+```
+
+---
+
+### 4. `GET /api/admin/ai-status`
 Returns current operational status of the AI assistant.
 
 **Response (HTTP 200)**:
@@ -264,6 +315,7 @@ Returns paginated requirements with dashboard summary metrics and filter support
 - `limit` (number, default: 10, max: 100)
 - `category` (`planner` | `performer` | `crew`)
 - `status` (`new` | `reviewing` | `contacted` | `confirmed` | `closed`)
+- `excludeStatus` (`new` | `reviewing` | `contacted` | `confirmed` | `closed` - e.g. `excludeStatus=closed` used by calendar)
 - `eventType` (string, case-insensitive substring)
 - `location` (string, case-insensitive substring)
 - `dateFrom` (`YYYY-MM-DD`)
