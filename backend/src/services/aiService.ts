@@ -11,6 +11,8 @@ export interface AiExtractionResult {
 
 export type AiGeneratorFn = (description: string, today: string) => Promise<string>;
 
+export const GEMINI_TIMEOUT_MS = 45000;
+
 let inMemoryStatus: {
   status: AiStatus;
   lastIssueAt: Date | null;
@@ -217,14 +219,19 @@ export function classifyAiError(error: unknown): AiErrorClassification {
       return 'MODEL_NOT_FOUND';
     }
 
-    // 4. Timeout / network
+    // 4. Timeout / network / cancellation
     if (
       err.code === 'ETIMEDOUT' ||
       err.name === 'TimeoutError' ||
+      err.name === 'AbortError' ||
+      err.code === 'ABORT_ERR' ||
       err.code === 'ECONNABORTED' ||
       err.code === 'ECONNREFUSED' ||
       status === 504 ||
       msg.includes('timed out') ||
+      msg.includes('timeout') ||
+      msg.includes('aborted') ||
+      msg.includes('abort') ||
       msg.includes('fetch failed') ||
       msg.includes('network') ||
       msg.includes('etimedout')
@@ -288,24 +295,35 @@ Expected JSON output format:
 Rule 1: Category must be one of: "planner", "performer", "crew".
 Rule 2: Never include markdown code fences or conversational text. Output pure JSON only.`;
 
-  // Candidate models: prefer configured model if provided, with robust fallbacks
-  const configuredModel = process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash';
+  // Model fallback order:
+  // GEMINI_MODEL override -> gemini-3.5-flash-lite -> gemini-3.5-flash -> gemini-3.6-flash -> gemini-3.8-flash
+  const configuredModel = process.env.GEMINI_MODEL?.trim();
+  const fallbackOrder = [
+    'gemini-3.5-flash-lite',
+    'gemini-3.5-flash',
+    'gemini-3.6-flash',
+    'gemini-3.8-flash'
+  ];
   const candidateModels = [
-    configuredModel,
-    'gemini-2.0-flash',
-    'gemini-1.5-flash'
+    ...(configuredModel ? [configuredModel] : []),
+    ...fallbackOrder
   ].filter((m, idx, arr) => arr.indexOf(m) === idx);
 
   let lastError: unknown;
 
   for (const modelName of candidateModels) {
+    const controller = new AbortController();
+    let timeoutId: NodeJS.Timeout | undefined;
+
     try {
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => {
-          const error = new Error('Gemini request timed out after 15 seconds.');
+        timeoutId = setTimeout(() => {
+          controller.abort();
+          const error = new Error(`Gemini request timed out after ${GEMINI_TIMEOUT_MS / 1000} seconds.`);
           (error as any).code = 'ETIMEDOUT';
+          (error as any).name = 'TimeoutError';
           reject(error);
-        }, 15000);
+        }, GEMINI_TIMEOUT_MS);
       });
 
       const apiPromise = ai.models.generateContent({
@@ -313,21 +331,38 @@ Rule 2: Never include markdown code fences or conversational text. Output pure J
         contents: description,
         config: {
           responseMimeType: 'application/json',
-          systemInstruction
+          systemInstruction,
+          abortSignal: controller.signal
         }
       });
 
+      // Prevent unhandled rejection warning if timeout fires before upstream abort settles
+      apiPromise.catch(() => {});
+
       const response = await Promise.race([apiPromise, timeoutPromise]);
       return response.text || '';
-    } catch (err) {
+    } catch (err: any) {
       lastError = err;
+
+      // If aborted due to timeout or timed out, throw explicit timeout error
+      if (err?.code === 'ETIMEDOUT' || err?.name === 'TimeoutError' || controller.signal.aborted) {
+        const timeoutErr = new Error(`Gemini request timed out after ${GEMINI_TIMEOUT_MS / 1000} seconds.`);
+        (timeoutErr as any).code = 'ETIMEDOUT';
+        (timeoutErr as any).name = 'TimeoutError';
+        throw timeoutErr;
+      }
+
       const errorClassification = classifyAiError(err);
       if (errorClassification === 'MODEL_NOT_FOUND') {
         logSanitizedAiError(err, `Model ${modelName} not found, trying fallback`);
         continue; // Try next candidate model
       }
-      // If it's a quota, auth, or timeout error, do not retry other models
+      // If it's a quota, auth, timeout, or network error, do not retry other models
       throw err;
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     }
   }
 

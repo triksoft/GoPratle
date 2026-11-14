@@ -146,7 +146,7 @@ describe('AI Assistant API', () => {
   });
 
   it('handles Gemini network or timeout error with retryable 504 response', async () => {
-    const timeoutError = Object.assign(new Error('Request timed out after 15 seconds.'), {
+    const timeoutError = Object.assign(new Error('Gemini request timed out after 45 seconds.'), {
       code: 'ETIMEDOUT'
     });
     const mockGenerator = vi.fn().mockRejectedValue(timeoutError);
@@ -155,6 +155,23 @@ describe('AI Assistant API', () => {
     const response = await request(app)
       .post('/api/ai/extract-event-details')
       .send({ description: 'Need sound technicians in Chennai.' });
+
+    expect(response.status).toBe(504);
+    expect(response.body.code).toBe('AI_NETWORK_ERROR');
+    expect(response.body.message).toContain('retry or continue manually');
+  });
+
+  it('handles request cancellation / AbortError gracefully with 504 response', async () => {
+    const abortError = Object.assign(new Error('This operation was aborted'), {
+      name: 'AbortError',
+      code: 'ABORT_ERR'
+    });
+    const mockGenerator = vi.fn().mockRejectedValue(abortError);
+    const app = createApp({ aiOptions: { generator: mockGenerator } });
+
+    const response = await request(app)
+      .post('/api/ai/extract-event-details')
+      .send({ description: 'Need event anchors in Hyderabad.' });
 
     expect(response.status).toBe(504);
     expect(response.body.code).toBe('AI_NETWORK_ERROR');
