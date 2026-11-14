@@ -4,6 +4,7 @@ import {
   cleanJsonString,
   defaultGeminiGenerator,
   getAiSystemStatus,
+  logSanitizedAiError,
   normalizeExtractedDetails,
   recordAiStatus,
   type AiGeneratorFn
@@ -62,6 +63,7 @@ export function aiRouter(options: AiRouterOptions = {}) {
         const cleaned = cleanJsonString(rawOutput);
         parsedJson = JSON.parse(cleaned);
       } catch (jsonErr) {
+        logSanitizedAiError(jsonErr, 'Gemini Raw Output Parse');
         await recordAiStatus('available', 'INVALID_AI_OUTPUT');
         return res.status(422).json({
           code: 'AI_PARSE_FAILED',
@@ -72,6 +74,7 @@ export function aiRouter(options: AiRouterOptions = {}) {
       const normalized = normalizeExtractedDetails(parsedJson);
       const validated = extractedAiDetailsSchema.safeParse(normalized);
       if (!validated.success) {
+        logSanitizedAiError(validated.error, 'Gemini Normalized Schema Validation');
         await recordAiStatus('available', 'INVALID_AI_OUTPUT');
         return res.status(422).json({
           code: 'AI_PARSE_FAILED',
@@ -100,6 +103,7 @@ export function aiRouter(options: AiRouterOptions = {}) {
       const errorType = classifyAiError(error);
 
       if (errorType === 'CONFIG_MISSING') {
+        logSanitizedAiError(error, 'Gemini Configuration/Authentication');
         await recordAiStatus('unavailable', 'API_KEY_NOT_CONFIGURED');
         return res.status(503).json({
           code: 'AI_CONFIG_MISSING',
@@ -107,7 +111,17 @@ export function aiRouter(options: AiRouterOptions = {}) {
         });
       }
 
+      if (errorType === 'MODEL_NOT_FOUND') {
+        logSanitizedAiError(error, 'Gemini Model Resolution');
+        await recordAiStatus('unavailable', 'MODEL_NOT_FOUND');
+        return res.status(503).json({
+          code: 'AI_CONFIG_MISSING',
+          message: 'The AI assistant model is currently unavailable. Please complete the event form manually.'
+        });
+      }
+
       if (errorType === 'QUOTA_LIMIT') {
+        logSanitizedAiError(error, 'Gemini Quota/Rate Limit');
         await recordAiStatus('limited', 'RATE_LIMIT_EXCEEDED');
         return res.status(429).json({
           code: 'AI_LIMIT_REACHED',
@@ -116,6 +130,7 @@ export function aiRouter(options: AiRouterOptions = {}) {
       }
 
       if (errorType === 'TIMEOUT') {
+        logSanitizedAiError(error, 'Gemini Network Timeout');
         await recordAiStatus('unavailable', 'NETWORK_TIMEOUT');
         return res.status(504).json({
           code: 'AI_NETWORK_ERROR',
@@ -123,6 +138,7 @@ export function aiRouter(options: AiRouterOptions = {}) {
         });
       }
 
+      logSanitizedAiError(error, 'Gemini Unexpected Provider Service');
       await recordAiStatus('unavailable', 'AI_SERVICE_ERROR');
       return res.status(500).json({
         code: 'AI_SERVICE_ERROR',

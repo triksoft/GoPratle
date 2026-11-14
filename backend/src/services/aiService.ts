@@ -103,26 +103,80 @@ export function cleanJsonString(str: string): string {
   return cleaned.trim();
 }
 
-export function classifyAiError(error: unknown): 'QUOTA_LIMIT' | 'TIMEOUT' | 'INVALID_JSON' | 'CONFIG_MISSING' | 'OTHER' {
+export function sanitizeSecretString(message: string): string {
+  if (!message) return '';
+  return message
+    .replace(/(key[=:])\s*([a-zA-Z0-9_\-]+)/gi, '$1[REDACTED]')
+    .replace(/AIzaSy[a-zA-Z0-9_\-]{20,}/g, '[REDACTED_API_KEY]')
+    .replace(/(Bearer\s+)[a-zA-Z0-9_\.\-]+/gi, '$1[REDACTED_TOKEN]');
+}
+
+export function extractHttpStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+  const err = error as Record<string, any>;
+  if (typeof err.status === 'number') return err.status;
+  if (typeof err.statusCode === 'number') return err.statusCode;
+  if (typeof err.code === 'number') return err.code;
+  if (err.error && typeof err.error === 'object') {
+    if (typeof err.error.code === 'number') return err.error.code;
+    if (typeof err.error.status === 'number') return err.error.status;
+  }
+  const match = String(err.message || '').match(/\b(400|401|403|404|429|500|503|504)\b/);
+  if (match) return Number(match[1]);
+  return undefined;
+}
+
+export function extractErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+  const err = error as Record<string, any>;
+  if (typeof err.code === 'string') return err.code;
+  if (typeof err.status === 'string') return err.status;
+  if (err.error && typeof err.error === 'object') {
+    if (typeof err.error.status === 'string') return err.error.status;
+    if (typeof err.error.code === 'string') return err.error.code;
+  }
+  return undefined;
+}
+
+export function logSanitizedAiError(error: unknown, context: string = 'Gemini API') {
+  const status = extractHttpStatus(error);
+  const code = extractErrorCode(error);
+  const name = error instanceof Error ? error.name : 'UnknownError';
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const message = sanitizeSecretString(rawMessage);
+
+  console.error(`[AI Diagnostic] ${context} error:`, {
+    status: status ?? 'N/A',
+    name,
+    code: code ?? 'UNKNOWN',
+    message: message || 'No message provided'
+  });
+}
+
+export type AiErrorClassification =
+  | 'CONFIG_MISSING'
+  | 'MODEL_NOT_FOUND'
+  | 'QUOTA_LIMIT'
+  | 'TIMEOUT'
+  | 'INVALID_JSON'
+  | 'OTHER';
+
+export function classifyAiError(error: unknown): AiErrorClassification {
   if (!error) return 'OTHER';
   if (typeof error === 'object') {
     const err = error as Record<string, any>;
     if (err.code === 'CONFIG_MISSING') return 'CONFIG_MISSING';
-    if (
-      err.code === 'ETIMEDOUT' ||
-      err.name === 'TimeoutError' ||
-      err.code === 'ECONNABORTED' ||
-      String(err.message || '').toLowerCase().includes('timed out')
-    ) {
-      return 'TIMEOUT';
-    }
-    if (err.status === 429 || err.statusCode === 429 || err.code === 429) return 'QUOTA_LIMIT';
-    if (err.status === 'RESOURCE_EXHAUSTED' || err.code === 'RESOURCE_EXHAUSTED') return 'QUOTA_LIMIT';
-    if (err.error && typeof err.error === 'object') {
-      if (err.error.code === 429 || err.error.status === 'RESOURCE_EXHAUSTED') return 'QUOTA_LIMIT';
-    }
+    if (err.code === 'MODEL_NOT_FOUND') return 'MODEL_NOT_FOUND';
+
+    const status = extractHttpStatus(error);
+    const code = String(extractErrorCode(error) || '').toUpperCase();
     const msg = String(err.message || '').toLowerCase();
+
+    // 1. Quota / rate limit / 429
     if (
+      status === 429 ||
+      code === 'RESOURCE_EXHAUSTED' ||
+      code === 'RATE_LIMIT_EXCEEDED' ||
       msg.includes('429') ||
       msg.includes('resource_exhausted') ||
       msg.includes('quota') ||
@@ -131,33 +185,65 @@ export function classifyAiError(error: unknown): 'QUOTA_LIMIT' | 'TIMEOUT' | 'IN
     ) {
       return 'QUOTA_LIMIT';
     }
+
+    // 2. Invalid / blocked key or HTTP 401 / 403
     if (
+      status === 401 ||
+      status === 403 ||
+      code === 'PERMISSION_DENIED' ||
+      code === 'UNAUTHENTICATED' ||
+      code === 'API_KEY_INVALID' ||
       msg.includes('api_key') ||
       msg.includes('api key') ||
       msg.includes('apikey') ||
-      err.status === 401 ||
-      err.status === 403
+      msg.includes('unauthenticated') ||
+      msg.includes('permission_denied') ||
+      msg.includes('permission denied') ||
+      (status === 400 && (msg.includes('key') || msg.includes('credential') || msg.includes('auth')))
     ) {
       return 'CONFIG_MISSING';
     }
-    if (msg.includes('json') || msg.includes('parse')) {
-      return 'INVALID_JSON';
-    }
+
+    // 3. Unavailable model or HTTP 404
     if (
+      status === 404 ||
+      code === 'NOT_FOUND' ||
+      msg.includes('404') ||
+      msg.includes('not found') ||
+      msg.includes('not_found') ||
+      msg.includes('is not supported for generatecontent') ||
+      msg.includes('call listmodels')
+    ) {
+      return 'MODEL_NOT_FOUND';
+    }
+
+    // 4. Timeout / network
+    if (
+      err.code === 'ETIMEDOUT' ||
+      err.name === 'TimeoutError' ||
+      err.code === 'ECONNABORTED' ||
+      err.code === 'ECONNREFUSED' ||
+      status === 504 ||
+      msg.includes('timed out') ||
       msg.includes('fetch failed') ||
       msg.includes('network') ||
-      msg.includes('econnrefused') ||
       msg.includes('etimedout')
     ) {
       return 'TIMEOUT';
     }
+
+    // 5. Invalid JSON
+    if (msg.includes('json') || msg.includes('parse')) {
+      return 'INVALID_JSON';
+    }
   }
+
   return 'OTHER';
 }
 
 export async function defaultGeminiGenerator(description: string, today: string): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || !apiKey.trim()) {
+  if (!apiKey || !apiKey.trim() || apiKey === 'your_actual_gemini_api_key_from_google_ai_studio') {
     const error = new Error('GEMINI_API_KEY is not configured.');
     (error as any).code = 'CONFIG_MISSING';
     throw error;
@@ -202,25 +288,51 @@ Expected JSON output format:
 Rule 1: Category must be one of: "planner", "performer", "crew".
 Rule 2: Never include markdown code fences or conversational text. Output pure JSON only.`;
 
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => {
-      const error = new Error('Gemini request timed out after 15 seconds.');
-      (error as any).code = 'ETIMEDOUT';
-      reject(error);
-    }, 15000);
-  });
+  // Candidate models: prefer configured model if provided, with robust fallbacks
+  const configuredModel = process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash';
+  const candidateModels = [
+    configuredModel,
+    'gemini-2.0-flash',
+    'gemini-1.5-flash'
+  ].filter((m, idx, arr) => arr.indexOf(m) === idx);
 
-  const apiPromise = ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: description,
-    config: {
-      responseMimeType: 'application/json',
-      systemInstruction
+  let lastError: unknown;
+
+  for (const modelName of candidateModels) {
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          const error = new Error('Gemini request timed out after 15 seconds.');
+          (error as any).code = 'ETIMEDOUT';
+          reject(error);
+        }, 15000);
+      });
+
+      const apiPromise = ai.models.generateContent({
+        model: modelName,
+        contents: description,
+        config: {
+          responseMimeType: 'application/json',
+          systemInstruction
+        }
+      });
+
+      const response = await Promise.race([apiPromise, timeoutPromise]);
+      return response.text || '';
+    } catch (err) {
+      lastError = err;
+      const errorClassification = classifyAiError(err);
+      if (errorClassification === 'MODEL_NOT_FOUND') {
+        logSanitizedAiError(err, `Model ${modelName} not found, trying fallback`);
+        continue; // Try next candidate model
+      }
+      // If it's a quota, auth, or timeout error, do not retry other models
+      throw err;
     }
-  });
+  }
 
-  const response = await Promise.race([apiPromise, timeoutPromise]);
-  return response.text || '';
+  // If all candidate models failed
+  throw lastError;
 }
 
 export function normalizeExtractedDetails(data: any): ExtractedAiDetails {

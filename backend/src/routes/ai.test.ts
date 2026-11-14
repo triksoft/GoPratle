@@ -56,6 +56,63 @@ describe('AI Assistant API', () => {
     expect(response.body).not.toHaveProperty('apiKey');
   });
 
+  it('handles provider 401 unauthenticated / invalid key error safely with 503 without leaking secrets', async () => {
+    const authError = Object.assign(new Error('API key not valid. Please pass a valid API key.'), {
+      status: 401,
+      code: 'UNAUTHENTICATED'
+    });
+    const mockGenerator = vi.fn().mockRejectedValue(authError);
+    const app = createApp({ aiOptions: { generator: mockGenerator } });
+
+    const response = await request(app)
+      .post('/api/ai/extract-event-details')
+      .send({ description: 'Need an event planner in Pune.' });
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('AI_CONFIG_MISSING');
+    expect(response.body.message).toContain('not configured');
+    expect(JSON.stringify(response.body)).not.toContain('API key not valid');
+  });
+
+  it('handles provider 403 permission denied / blocked key error safely with 503', async () => {
+    const forbiddenError = Object.assign(new Error('Permission denied on resource projects/x/models/y.'), {
+      status: 403,
+      code: 'PERMISSION_DENIED'
+    });
+    const mockGenerator = vi.fn().mockRejectedValue(forbiddenError);
+    const app = createApp({ aiOptions: { generator: mockGenerator } });
+
+    const response = await request(app)
+      .post('/api/ai/extract-event-details')
+      .send({ description: 'Need a band in Kolkata.' });
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('AI_CONFIG_MISSING');
+    expect(response.body.message).toContain('not configured');
+  });
+
+  it('handles provider 404 model not found error safely with 503 model configuration diagnosis', async () => {
+    const notFoundError = Object.assign(
+      new Error('models/gemini-2.5-flash is not found for API version v1beta, or is not supported for generateContent.'),
+      {
+        status: 404,
+        code: 'NOT_FOUND'
+      }
+    );
+    const mockGenerator = vi.fn().mockRejectedValue(notFoundError);
+    const app = createApp({ aiOptions: { generator: mockGenerator } });
+
+    const response = await request(app)
+      .post('/api/ai/extract-event-details')
+      .send({ description: 'Corporate summit in Hyderabad.' });
+
+    expect(response.status).toBe(503);
+    expect(response.body.code).toBe('AI_CONFIG_MISSING');
+    expect(response.body.message).toContain('model is currently unavailable');
+    // Does not expose provider error details
+    expect(JSON.stringify(response.body)).not.toContain('v1beta');
+  });
+
   it('handles Gemini quota / token / rate-limit with HTTP 429 AI_LIMIT_REACHED', async () => {
     const quotaError = Object.assign(new Error('Resource has been exhausted (e.g. check quota).'), {
       status: 429,
