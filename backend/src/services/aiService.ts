@@ -458,6 +458,32 @@ Output JSON Format:
   return callGeminiWithFallback(prompt, systemInstruction);
 }
 
+export function normalizeBudget(raw: any): string {
+  if (raw === undefined || raw === null) return '';
+  const str = String(raw).trim();
+  if (!str) return '';
+
+  // Check if it's a numeric range (e.g. "₹1,00,000–₹3,00,000" or "100000 - 300000")
+  const rangeMatch = str.match(/^(?:₹\s*)?([0-9,]+(?:\.[0-9]+)?)\s*(?:-|–|—|\bto\b)\s*(?:₹\s*)?([0-9,]+(?:\.[0-9]+)?)$/i);
+  if (rangeMatch) {
+    const min = rangeMatch[1].trim();
+    const max = rangeMatch[2].trim();
+    return `₹${min} – ₹${max}`;
+  }
+
+  // Complex or worded range, e.g. "₹1,00,000 – ₹3,00,000" or "1 Lakh to 2 Lakh"
+  if (/[-–—]|\bto\b/i.test(str) && /\d/.test(str)) {
+    return str.trim();
+  }
+
+  // Single value: if it has currency formatting or commas, keep readable
+  if (str.startsWith('₹') || str.includes(',')) {
+    return str;
+  }
+  const digits = str.replace(/[^\d.]/g, '');
+  return digits;
+}
+
 export function normalizeExtractedDetails(data: any): ExtractedAiDetails {
   const category = (data.category || '').toLowerCase();
   const validCategory = ['planner', 'performer', 'crew'].includes(category) ? category : '';
@@ -466,7 +492,7 @@ export function normalizeExtractedDetails(data: any): ExtractedAiDetails {
   let normalizedDetails: Record<string, any> = {};
 
   if (validCategory === 'planner') {
-    const budgetVal = detailsRaw.budget !== undefined && detailsRaw.budget !== null ? String(detailsRaw.budget).replace(/[^\d.]/g, '') : '';
+    const budgetVal = normalizeBudget(detailsRaw.budget);
     const guestVal = detailsRaw.guestCount !== undefined && detailsRaw.guestCount !== null ? String(detailsRaw.guestCount).replace(/\D/g, '') : '';
     let scope = detailsRaw.planningScope || '';
     if (!['Full planning', 'Partial planning', 'Day-of coordination'].includes(scope)) {

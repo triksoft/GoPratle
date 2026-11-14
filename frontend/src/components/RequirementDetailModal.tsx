@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { CategoryBadge, StatusBadge } from '@/components/Badges';
 import { updateRequirementStatus } from '@/lib/api';
+import { formatBudgetDisplay } from '@/lib/format';
 import {
   categoryLabel,
   requirementStatuses,
@@ -49,7 +50,7 @@ export function RequirementDetailModal({ requirement, onClose, onStatusUpdated }
   const detailsList: [string, string][] = [];
   if (currentReq.category === 'planner') {
     const d = currentReq.details as any;
-    if (d.budget) detailsList.push(['Estimated Budget', `₹${Number(d.budget).toLocaleString('en-IN')}`]);
+    if (d.budget) detailsList.push(['Estimated Budget', formatBudgetDisplay(d.budget)]);
     if (d.guestCount) detailsList.push(['Expected Guests', String(d.guestCount)]);
     if (d.planningScope) detailsList.push(['Planning Scope', String(d.planningScope)]);
   } else if (currentReq.category === 'performer') {

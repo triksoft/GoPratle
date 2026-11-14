@@ -5,6 +5,8 @@ import {
   defaultGeminiChatGenerator,
   defaultGeminiGenerator,
   logSanitizedAiError,
+  normalizeBudget,
+  normalizeExtractedDetails,
   sanitizeSecretString
 } from './aiService.js';
 
@@ -216,6 +218,34 @@ describe('aiService timeout, cancellation, and model fallback', () => {
       expect(sanitized).toContain('key=[REDACTED]');
       expect(sanitized).toContain('[REDACTED_API_KEY]');
       expect(sanitized).toContain('Bearer [REDACTED_TOKEN]');
+    });
+  });
+
+  describe('normalizeBudget & budget range handling', () => {
+    it('normalizes single numeric budget values cleanly', () => {
+      expect(normalizeBudget(80000)).toBe('80000');
+      expect(normalizeBudget('80000')).toBe('80000');
+      expect(normalizeBudget('₹80,000')).toBe('₹80,000');
+    });
+
+    it('preserves readable budget ranges and avoids concatenating digits', () => {
+      expect(normalizeBudget('₹1,00,000–₹3,00,000')).toBe('₹1,00,000 – ₹3,00,000');
+      expect(normalizeBudget('₹1,00,000 - ₹3,00,000')).toBe('₹1,00,000 – ₹3,00,000');
+      expect(normalizeBudget('100000 to 300000')).toBe('₹100000 – ₹300000');
+      // Must never return 100000300000
+      expect(normalizeBudget('₹1,00,000–₹3,00,000')).not.toContain('100000300000');
+    });
+
+    it('preserves budget range in normalizeExtractedDetails for planner', () => {
+      const extracted = normalizeExtractedDetails({
+        category: 'planner',
+        details: {
+          budget: '₹1,00,000–₹3,00,000',
+          guestCount: '150',
+          planningScope: 'Full planning'
+        }
+      });
+      expect(extracted.details.budget).toBe('₹1,00,000 – ₹3,00,000');
     });
   });
 });

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { sendAiChatMessage } from '@/lib/api';
+import { formatBudgetDisplay } from '@/lib/format';
 import type { AiChatResponse, Category, ChatMessage } from '@/types/requirement';
 
 type Props = {
@@ -83,6 +84,33 @@ function resolveFriendlyError(err: any): ErrorState {
   };
 }
 
+function getTodayDateStr(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getThisWeekendDateRange(): { start: string; end: string } {
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0 is Sunday, 6 is Saturday
+  const daysUntilSaturday = (6 - dayOfWeek + 7) % 7 || 7;
+  const saturday = new Date(now);
+  saturday.setDate(now.getDate() + (dayOfWeek === 6 ? 0 : daysUntilSaturday));
+  const sunday = new Date(saturday);
+  sunday.setDate(saturday.getDate() + 1);
+
+  const format = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  return { start: format(saturday), end: format(sunday) };
+}
+
 export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: 'assistant', content: INITIAL_GREETING }
@@ -97,13 +125,42 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
   const [showSupportPanel, setShowSupportPanel] = useState(false);
   const [appliedNotice, setAppliedNotice] = useState(false);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Issue 1: Internal container scroll state
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const [isScrolledUp, setIsScrolledUp] = useState(false);
 
-  useEffect(() => {
-    if (typeof messagesEndRef.current?.scrollIntoView === 'function') {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+  // Issue 3: Inline Date Picker state
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [pickerMode, setPickerMode] = useState<'single' | 'range'>('single');
+  const [singleDate, setSingleDate] = useState('');
+  const [rangeStart, setRangeStart] = useState('');
+  const [rangeEnd, setRangeEnd] = useState('');
+  const [datePickerError, setDatePickerError] = useState('');
+
+  const scrollChatToBottom = (smooth = true) => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+    if (smooth && typeof container.scrollTo === 'function') {
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+    } else {
+      container.scrollTop = container.scrollHeight;
     }
-  }, [messages, loading, error, showSupportPanel]);
+    setIsScrolledUp(false);
+  };
+
+  const handleContainerScroll = () => {
+    const container = chatContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    setIsScrolledUp(distanceFromBottom > 60);
+  };
+
+  // Only auto-scroll internal container when messages arrive, without jumping the outer page
+  useEffect(() => {
+    if (!isScrolledUp) {
+      scrollChatToBottom(true);
+    }
+  }, [messages, loading]);
 
   const handleManualRedirect = () => {
     if (onContinueManually) {
@@ -118,6 +175,12 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
   const handleSendMessage = async (textToSend: string) => {
     const trimmed = textToSend.trim();
     if (!trimmed || loading) return;
+
+    // Check if the user selected the "Pick from calendar" chip
+    if (trimmed.toLowerCase().includes('pick from calendar') || trimmed.toLowerCase() === 'calendar') {
+      setShowDatePicker(true);
+      return;
+    }
 
     if (trimmed.toLowerCase() === 'need help' || trimmed.toLowerCase() === 'need help?') {
       setShowSupportPanel(true);
@@ -134,6 +197,8 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
     setLoading(true);
     setError(null);
     setAppliedNotice(false);
+    setShowDatePicker(false);
+    setIsScrolledUp(false);
 
     try {
       const response = await sendAiChatMessage(nextMessages, extractedDetails || undefined);
@@ -160,7 +225,6 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
   const handleRetryLastMessage = () => {
     const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
     if (lastUserMessage) {
-      // Retry with the current conversation history up to the last user message
       const lastIndex = messages.lastIndexOf(lastUserMessage);
       const subMessages = messages.slice(0, lastIndex + 1);
       setLoading(true);
@@ -189,9 +253,11 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
     }
   };
 
+  // Issue 2: Review details action
   const handleReviewDetails = () => {
     if (!extractedDetails) return;
-    onApplyDetails(extractedDetails, suggestedStep);
+    // Always pre-fill and direct customer to the beginning of the wizard for review
+    onApplyDetails(extractedDetails, 1);
     setAppliedNotice(true);
     handleManualRedirect();
   };
@@ -206,6 +272,50 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
     setError(null);
     setShowSupportPanel(false);
     setAppliedNotice(false);
+    setShowDatePicker(false);
+    setIsScrolledUp(false);
+  };
+
+  // Issue 3: Inline Date Picker actions
+  const handleConfirmDate = () => {
+    setDatePickerError('');
+    if (pickerMode === 'single') {
+      if (!singleDate) {
+        setDatePickerError('Please select a date.');
+        return;
+      }
+      handleSendMessage(singleDate);
+    } else {
+      if (!rangeStart) {
+        setDatePickerError('Please select a start date.');
+        return;
+      }
+      if (!rangeEnd) {
+        setDatePickerError('Please select an end date.');
+        return;
+      }
+      if (rangeEnd < rangeStart) {
+        setDatePickerError('End date must be on or after start date.');
+        return;
+      }
+      handleSendMessage(`${rangeStart} to ${rangeEnd}`);
+    }
+    setShowDatePicker(false);
+  };
+
+  const handleSelectToday = () => {
+    const today = getTodayDateStr();
+    setPickerMode('single');
+    setSingleDate(today);
+    setDatePickerError('');
+  };
+
+  const handleSelectThisWeekend = () => {
+    const weekend = getThisWeekendDateRange();
+    setPickerMode('range');
+    setRangeStart(weekend.start);
+    setRangeEnd(weekend.end);
+    setDatePickerError('');
   };
 
   return (
@@ -262,11 +372,14 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
         </div>
       </div>
 
-      {/* Applied Notice */}
+      {/* Applied Notice: explicitly tells user details are added and must be reviewed before final posting */}
       {appliedNotice && (
-        <div className="mt-4 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-800">
+        <div
+          role="status"
+          className="mt-4 flex items-center justify-between rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-xs text-indigo-900"
+        >
           <div className="flex items-center gap-2">
-            <svg className="h-4 w-4 text-emerald-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <svg className="h-4 w-4 text-indigo-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
               <path
                 fillRule="evenodd"
                 d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
@@ -274,7 +387,7 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
               />
             </svg>
             <span>
-              <strong>AI pre-filled your event requirement details!</strong> Review and edit any field below.
+              <strong>Details added to the form.</strong> Please review and post your requirement below.
             </span>
           </div>
           <button
@@ -287,54 +400,69 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
         </div>
       )}
 
-      {/* Chat Messages Stream */}
-      <div className="mt-4 flex max-h-80 flex-col gap-3 overflow-y-auto rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4 sm:p-5">
-        {messages.map((msg, idx) => (
-          <div
-            key={idx}
-            className={`flex items-start gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            {msg.role === 'assistant' && (
-              <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-xs font-bold text-white shadow-xs">
+      {/* Issue 1: Chat Messages Stream with internal scrolling and jump-to-latest button */}
+      <div className="relative mt-4">
+        <div
+          ref={chatContainerRef}
+          onScroll={handleContainerScroll}
+          className="flex max-h-80 flex-col gap-3 overflow-y-auto rounded-2xl border border-slate-200/80 bg-slate-50/60 p-4 sm:p-5"
+        >
+          {messages.map((msg, idx) => (
+            <div
+              key={idx}
+              className={`flex items-start gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              {msg.role === 'assistant' && (
+                <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-xs font-bold text-white shadow-xs">
+                  AI
+                </div>
+              )}
+              <div
+                className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs sm:text-sm leading-relaxed shadow-xs ${
+                  msg.role === 'user'
+                    ? 'bg-indigo-600 text-white rounded-br-none'
+                    : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none'
+                }`}
+              >
+                {msg.content}
+              </div>
+            </div>
+          ))}
+
+          {loading && (
+            <div className="flex items-start gap-2.5">
+              <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-xs font-bold text-white">
                 AI
               </div>
-            )}
-            <div
-              className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs sm:text-sm leading-relaxed shadow-xs ${
-                msg.role === 'user'
-                  ? 'bg-indigo-600 text-white rounded-br-none'
-                  : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none'
-              }`}
-            >
-              {msg.content}
+              <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-none border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-xs">
+                <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-400" style={{ animationDelay: '0ms' }} />
+                <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-500" style={{ animationDelay: '150ms' }} />
+                <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-600" style={{ animationDelay: '300ms' }} />
+                <span className="ml-1 text-xs text-slate-400">GoPratle assistant is thinking...</span>
+              </div>
             </div>
-          </div>
-        ))}
+          )}
+        </div>
 
-        {loading && (
-          <div className="flex items-start gap-2.5">
-            <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-xs font-bold text-white">
-              AI
-            </div>
-            <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-none border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-xs">
-              <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-400" style={{ animationDelay: '0ms' }} />
-              <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-500" style={{ animationDelay: '150ms' }} />
-              <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-600" style={{ animationDelay: '300ms' }} />
-              <span className="ml-1 text-xs text-slate-400">GoPratle assistant is thinking...</span>
-            </div>
-          </div>
+        {/* Floating Jump-to-Latest Button */}
+        {isScrolledUp && (
+          <button
+            type="button"
+            onClick={() => scrollChatToBottom(true)}
+            className="absolute bottom-3 right-4 z-10 inline-flex items-center gap-1 rounded-full bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-md transition hover:bg-indigo-700"
+          >
+            <span>↓ Jump to latest</span>
+          </button>
         )}
-
-        <div ref={messagesEndRef} />
       </div>
 
-      {/* Extracted Details / Review Action Banner */}
+      {/* Issue 2: Extracted Details Card with explicit "Review details in form" label */}
       {extractedDetails && (isReadyForReview || extractedDetails.eventType || extractedDetails.eventName) && (
         <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3 sm:p-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-0.5">
               <p className="text-xs font-bold uppercase tracking-wider text-indigo-700">
-                {isReadyForReview ? 'Ready to Review Details' : 'Details Captured So Far'}
+                {isReadyForReview ? 'Ready to Review in Form' : 'Details Captured for Form'}
               </p>
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-700">
                 {extractedDetails.eventName && (
@@ -350,6 +478,9 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
                 {extractedDetails.startDate && (
                   <span className="inline-flex items-center rounded-md bg-white px-2 py-0.5 font-medium border border-indigo-100">
                     Date: {extractedDetails.startDate}
+                    {extractedDetails.dateType === 'range' && extractedDetails.endDate
+                      ? ` to ${extractedDetails.endDate}`
+                      : ''}
                   </span>
                 )}
                 {extractedDetails.location && (
@@ -362,6 +493,11 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
                     Category: {extractedDetails.category}
                   </span>
                 )}
+                {extractedDetails.details?.budget && (
+                  <span className="inline-flex items-center rounded-md bg-white px-2 py-0.5 font-medium border border-indigo-100">
+                    Budget: {formatBudgetDisplay(extractedDetails.details.budget)}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -370,14 +506,149 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
               onClick={handleReviewDetails}
               className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              Review event details →
+              Review details in form →
             </button>
           </div>
         </div>
       )}
 
+      {/* Issue 3: Inline Accessible Date Picker */}
+      {showDatePicker && (
+        <div
+          role="region"
+          aria-label="Pick event date from calendar"
+          className="mt-3 rounded-2xl border border-indigo-200 bg-white p-4 shadow-sm space-y-3"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-900">Select Event Date</span>
+            <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-0.5 text-[11px] font-medium">
+              <button
+                type="button"
+                onClick={() => {
+                  setPickerMode('single');
+                  setDatePickerError('');
+                }}
+                className={`rounded-md px-2.5 py-1 transition ${
+                  pickerMode === 'single'
+                    ? 'bg-white font-semibold text-indigo-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Single date
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPickerMode('range');
+                  setDatePickerError('');
+                }}
+                className={`rounded-md px-2.5 py-1 transition ${
+                  pickerMode === 'range'
+                    ? 'bg-white font-semibold text-indigo-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Date range
+              </button>
+            </div>
+          </div>
+
+          {pickerMode === 'single' ? (
+            <div>
+              <label htmlFor="inline-single-date" className="block text-[11px] font-medium text-slate-600 mb-1">
+                Event date
+              </label>
+              <input
+                id="inline-single-date"
+                type="date"
+                value={singleDate}
+                onChange={e => {
+                  setSingleDate(e.target.value);
+                  setDatePickerError('');
+                }}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs text-slate-900 shadow-xs focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="inline-start-date" className="block text-[11px] font-medium text-slate-600 mb-1">
+                  Start date
+                </label>
+                <input
+                  id="inline-start-date"
+                  type="date"
+                  value={rangeStart}
+                  onChange={e => {
+                    setRangeStart(e.target.value);
+                    setDatePickerError('');
+                  }}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs text-slate-900 shadow-xs focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                />
+              </div>
+              <div>
+                <label htmlFor="inline-end-date" className="block text-[11px] font-medium text-slate-600 mb-1">
+                  End date
+                </label>
+                <input
+                  id="inline-end-date"
+                  type="date"
+                  value={rangeEnd}
+                  onChange={e => {
+                    setRangeEnd(e.target.value);
+                    setDatePickerError('');
+                  }}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs text-slate-900 shadow-xs focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                />
+              </div>
+            </div>
+          )}
+
+          {datePickerError && (
+            <p className="text-[11px] font-medium text-rose-600">{datePickerError}</p>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2.5">
+            <div className="flex items-center gap-2 text-xs">
+              <button
+                type="button"
+                onClick={handleSelectToday}
+                className="font-medium text-indigo-600 hover:text-indigo-800 hover:underline"
+              >
+                Today
+              </button>
+              <span className="text-slate-300">·</span>
+              <button
+                type="button"
+                onClick={handleSelectThisWeekend}
+                className="font-medium text-indigo-600 hover:text-indigo-800 hover:underline"
+              >
+                This weekend
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowDatePicker(false)}
+                className="rounded-lg px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDate}
+                className="rounded-xl bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-indigo-700"
+              >
+                Set date
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Quick Reply Chips */}
-      {!loading && quickReplies.length > 0 && (
+      {!loading && (
         <div className="mt-3">
           <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
             Suggested replies:
@@ -393,6 +664,13 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
                 {reply}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => setShowDatePicker(true)}
+              className="rounded-full border border-indigo-300 bg-indigo-50/70 px-3 py-1 text-xs font-semibold text-indigo-800 shadow-xs transition hover:bg-indigo-100"
+            >
+              Pick from calendar 📅
+            </button>
             <button
               type="button"
               onClick={() => handleSendMessage(SAMPLE_BRIEF)}

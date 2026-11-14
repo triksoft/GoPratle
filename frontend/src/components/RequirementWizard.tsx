@@ -24,6 +24,7 @@ export function RequirementWizard() {
   const [errors, setErrors] = useState<FieldErrors>({});
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
+  const [wizardNotice, setWizardNotice] = useState('');
 
   const change = (patch: Partial<RequirementForm>) => {
     setForm(current => {
@@ -80,7 +81,8 @@ export function RequirementWizard() {
     setErrors({});
     setStatus('idle');
     setMessage('');
-    setStep(suggestedStep || 1);
+    setWizardNotice('Details added to the form. Please review and post your requirement.');
+    setStep(1);
   };
 
   const next = () => {
@@ -161,6 +163,31 @@ export function RequirementWizard() {
       {/* Step Wizard Form */}
       <div id="requirement-form" className="card shadow-soft scroll-mt-6">
         <Progress current={step} />
+
+        {wizardNotice && (
+          <div
+            role="status"
+            className="mt-6 flex items-center justify-between rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-xs font-medium text-indigo-950"
+          >
+            <div className="flex items-center gap-2">
+              <svg className="h-4 w-4 text-indigo-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path
+                  fillRule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              <span>{wizardNotice}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setWizardNotice('')}
+              className="text-indigo-600 hover:text-indigo-800 text-xs font-semibold ml-2"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {status === 'error' && message && (
           <div

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { CategoryBadge, StatusBadge } from '@/components/Badges';
 import { fetchRequirementById, updateRequirementStatus } from '@/lib/api';
+import { formatBudgetDisplay } from '@/lib/format';
 import {
   categoryLabel,
   requirementStatuses,
@@ -82,7 +83,7 @@ export default function RequirementDetailPage() {
   const detailsList: [string, string][] = [];
   if (req.category === 'planner') {
     const d = req.details as any;
-    if (d.budget) detailsList.push(['Estimated Budget', `₹${Number(d.budget).toLocaleString('en-IN')}`]);
+    if (d.budget) detailsList.push(['Estimated Budget', formatBudgetDisplay(d.budget)]);
     if (d.guestCount) detailsList.push(['Expected Guests', String(d.guestCount)]);
     if (d.planningScope) detailsList.push(['Planning Scope', String(d.planningScope)]);
   } else if (req.category === 'performer') {

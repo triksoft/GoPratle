@@ -8,6 +8,7 @@ import listPlugin from '@fullcalendar/react/list';
 import classicThemePlugin from '@fullcalendar/react/themes/classic';
 import { RequirementDetailModal } from '@/components/RequirementDetailModal';
 import { fetchRequirements } from '@/lib/api';
+import { getNextDayStr } from '@/lib/format';
 import type { Category, StoredRequirement } from '@/types/requirement';
 
 // Dynamic import with ssr: false ensures FullCalendar runs in browser environment
@@ -28,16 +29,6 @@ const categoryColors: Record<Category, { bg: string; border: string }> = {
   performer: { bg: '#9333ea', border: '#7e22ce' }, // purple
   crew: { bg: '#059669', border: '#047857' } // emerald
 };
-
-function getNextDayStr(dateStr: string): string {
-  try {
-    const d = new Date(dateStr + 'T00:00:00');
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().slice(0, 10);
-  } catch {
-    return dateStr;
-  }
-}
 
 export default function CalendarPage() {
   const [requirements, setRequirements] = useState<StoredRequirement[]>([]);

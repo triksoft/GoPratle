@@ -2,23 +2,31 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import CalendarPage from './page';
 import * as api from '@/lib/api';
+import { getNextDayStr } from '@/lib/format';
 import type { RequirementsResponse, StoredRequirement } from '@/types/requirement';
+
+let lastRenderedEvents: any[] = [];
 
 vi.mock('@fullcalendar/react', () => {
   return {
-    default: (props: any) => (
-      <div data-testid="fullcalendar-mock">
-        {props.events?.map((e: any) => (
-          <div
-            key={e.id}
-            data-testid={`event-${e.id}`}
-            onClick={(jsEvent) => props.eventClick?.({ event: { extendedProps: e.extendedProps }, jsEvent })}
-          >
-            {e.title}
-          </div>
-        ))}
-      </div>
-    )
+    default: (props: any) => {
+      lastRenderedEvents = props.events || [];
+      return (
+        <div data-testid="fullcalendar-mock">
+          {props.events?.map((e: any) => (
+            <div
+              key={e.id}
+              data-testid={`event-${e.id}`}
+              data-start={e.start}
+              data-end={e.end}
+              onClick={(jsEvent) => props.eventClick?.({ event: { extendedProps: e.extendedProps }, jsEvent })}
+            >
+              {e.title}
+            </div>
+          ))}
+        </div>
+      );
+    }
   };
 });
 
@@ -139,5 +147,59 @@ describe('CalendarPage (Closed Event Handling)', () => {
 
     // reqConfirmed remains visible
     expect(screen.getByTestId('event-req-confirmed')).toBeInTheDocument();
+  });
+
+  it('correctly calculates exclusive end-date using getNextDayStr for multi-day events', () => {
+    // 2026-11-15 -> 2026-11-16
+    expect(getNextDayStr('2026-11-15')).toBe('2026-11-16');
+    // Month boundary: 2026-11-30 -> 2026-12-01
+    expect(getNextDayStr('2026-11-30')).toBe('2026-12-01');
+  });
+
+  it('correctly maps a two-day event (Nov 14 to Nov 15) to span both days with exclusive end date', async () => {
+    const twoDayReq: StoredRequirement = {
+      _id: 'req-two-days',
+      eventName: 'Weekend Fest',
+      eventType: 'Festival',
+      dateType: 'range',
+      startDate: '2026-11-14',
+      endDate: '2026-11-15',
+      location: 'Goa',
+      venue: 'Beach Resort',
+      category: 'performer',
+      details: { performanceType: 'DJ', durationMinutes: '180', equipmentProvided: 'Partially provided' },
+      notes: '',
+      clientSubmissionId: 'id-twoday',
+      status: 'confirmed',
+      createdAt: '2026-11-14T10:00:00.000Z',
+      updatedAt: '2026-11-14T10:00:00.000Z'
+    };
+
+    vi.spyOn(api, 'fetchRequirements').mockResolvedValueOnce({
+      data: [twoDayReq],
+      pagination: { page: 1, limit: 100, total: 1, totalPages: 1, hasNextPage: false, hasPrevPage: false },
+      summary: { total: 1, planner: 0, performer: 1, crew: 0, upcoming: 1 }
+    });
+
+    render(<CalendarPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('event-req-two-days')).toBeInTheDocument();
+    });
+
+    // Check mapped event in FullCalendar: start is 2026-11-14 and end is 2026-11-16 (exclusive next day)
+    const mapped = lastRenderedEvents.find(e => e.id === 'req-two-days');
+    expect(mapped).toBeDefined();
+    expect(mapped.start).toBe('2026-11-14');
+    expect(mapped.end).toBe('2026-11-16');
+
+    // Click event to inspect modal
+    fireEvent.click(screen.getByTestId('event-req-two-days'));
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Weekend Fest' })).toBeInTheDocument();
+      // Dashboard detail view shows readable range "2026-11-14 to 2026-11-15"
+      expect(screen.getByText('2026-11-14 to 2026-11-15')).toBeInTheDocument();
+    });
   });
 });

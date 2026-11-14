@@ -22,6 +22,7 @@ describe('AiAssistant Guided Chat Component', () => {
     expect(screen.getByRole('button', { name: /corporate event/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /concert \/ performance/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /other/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /pick from calendar/i })).toBeInTheDocument();
 
     expect(
       screen.getByPlaceholderText(/type your event brief or answer here/i)
@@ -68,39 +69,12 @@ describe('AiAssistant Guided Chat Component', () => {
     expect(screen.getByRole('button', { name: /next saturday in bangalore/i })).toBeInTheDocument();
   });
 
-  it('sends typed message from the input field', async () => {
-    const mockResponse: AiChatResponse = {
-      assistantMessage: 'Got it. Approximately how many guests are you expecting?',
-      quickReplies: ['50 guests', '100 guests', '200+ guests'],
-      extracted: {
-        eventType: 'Corporate summit',
-        location: 'Hyderabad',
-        category: 'planner'
-      },
-      missingFields: ['guestCount'],
-      isReadyForReview: false,
-      suggestedStep: 1
-    };
-
-    const spySend = vi.spyOn(api, 'sendAiChatMessage').mockResolvedValueOnce(mockResponse);
-
-    render(<AiAssistant onApplyDetails={vi.fn()} />);
-
-    const input = screen.getByPlaceholderText(/type your event brief or answer here/i);
-    fireEvent.change(input, { target: { value: 'Corporate summit in Hyderabad next month' } });
-
-    fireEvent.click(screen.getByRole('button', { name: /send/i }));
-
-    expect(spySend).toHaveBeenCalledTimes(1);
-    await waitFor(() => {
-      expect(
-        screen.getByText(/approximately how many guests are you expecting\?/i)
-      ).toBeInTheDocument();
-    });
-  });
-
-  it('shows "Review event details" button and pre-fills form on click', async () => {
+  it('shows "Review details in form" button and does NOT submit requirement to POST /api/requirements', async () => {
     const onApplyDetails = vi.fn();
+    const createReqSpy = vi.spyOn(api, 'createRequirement').mockResolvedValue({
+      message: 'Created',
+      requirement: { _id: 'dummy' }
+    });
 
     const mockExtracted = {
       eventName: "Rohan's 30th Birthday",
@@ -115,12 +89,12 @@ describe('AiAssistant Guided Chat Component', () => {
     };
 
     const mockResponse: AiChatResponse = {
-      assistantMessage: 'I have all the details! Click Review event details below to proceed.',
+      assistantMessage: 'I have all your details! Click Review details in form below to proceed.',
       quickReplies: [],
       extracted: mockExtracted,
       missingFields: [],
       isReadyForReview: true,
-      suggestedStep: 2
+      suggestedStep: 1
     };
 
     vi.spyOn(api, 'sendAiChatMessage').mockResolvedValueOnce(mockResponse);
@@ -131,14 +105,159 @@ describe('AiAssistant Guided Chat Component', () => {
     fireEvent.click(birthdayBtn);
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /review event details/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /review details in form/i })).toBeInTheDocument();
     });
 
-    const reviewBtn = screen.getByRole('button', { name: /review event details/i });
+    const reviewBtn = screen.getByRole('button', { name: /review details in form/i });
     fireEvent.click(reviewBtn);
 
-    expect(onApplyDetails).toHaveBeenCalledWith(mockExtracted, 2);
-    expect(screen.getByText(/ai pre-filled your event requirement details!/i)).toBeInTheDocument();
+    // Pre-fills form
+    expect(onApplyDetails).toHaveBeenCalledWith(mockExtracted, 1);
+
+    // Explicitly displays review notice
+    expect(screen.getByRole('status')).toHaveTextContent(
+      /details added to the form/i
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      /please review and post your requirement/i
+    );
+
+    // MUST NOT call createRequirement
+    expect(createReqSpy).not.toHaveBeenCalled();
+  });
+
+  it('preserves and displays budget range without corrupting into large numbers', async () => {
+    const mockExtracted = {
+      eventName: 'Grand Wedding',
+      eventType: 'Wedding',
+      category: 'planner' as const,
+      details: {
+        budget: '₹1,00,000 – ₹3,00,000',
+        guestCount: '250',
+        planningScope: 'Full planning'
+      }
+    };
+
+    const mockResponse: AiChatResponse = {
+      assistantMessage: 'Captured budget range!',
+      quickReplies: [],
+      extracted: mockExtracted,
+      missingFields: [],
+      isReadyForReview: true,
+      suggestedStep: 1
+    };
+
+    vi.spyOn(api, 'sendAiChatMessage').mockResolvedValueOnce(mockResponse);
+
+    render(<AiAssistant onApplyDetails={vi.fn()} />);
+
+    const weddingBtn = screen.getByRole('button', { name: /wedding/i });
+    fireEvent.click(weddingBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/budget: ₹1,00,000 – ₹3,00,000/i)).toBeInTheDocument();
+    });
+
+    // Does not corrupt into concatenated numbers
+    expect(screen.queryByText(/1,00,00,03,00,000/)).not.toBeInTheDocument();
+  });
+
+  describe('Inline Accessible Date Picker (Pick from calendar)', () => {
+    it('opens date picker and submits single-date selection into conversation', async () => {
+      const sendSpy = vi.spyOn(api, 'sendAiChatMessage').mockResolvedValueOnce({
+        assistantMessage: 'Date noted.',
+        quickReplies: [],
+        extracted: {},
+        missingFields: [],
+        isReadyForReview: false,
+        suggestedStep: 1
+      });
+
+      render(<AiAssistant onApplyDetails={vi.fn()} />);
+
+      const pickCalendarBtn = screen.getByRole('button', { name: /pick from calendar/i });
+      fireEvent.click(pickCalendarBtn);
+
+      expect(screen.getByRole('region', { name: /pick event date from calendar/i })).toBeInTheDocument();
+
+      const dateInput = screen.getByLabelText(/^event date$/i);
+      fireEvent.change(dateInput, { target: { value: '2026-11-20' } });
+
+      fireEvent.click(screen.getByRole('button', { name: /set date/i }));
+
+      await waitFor(() => {
+        expect(sendSpy).toHaveBeenCalledWith(
+          expect.arrayContaining([
+            expect.objectContaining({ role: 'user', content: '2026-11-20' })
+          ]),
+          undefined
+        );
+      });
+    });
+
+    it('submits date-range selection and validates start before end date', async () => {
+      const sendSpy = vi.spyOn(api, 'sendAiChatMessage').mockResolvedValueOnce({
+        assistantMessage: 'Date range noted.',
+        quickReplies: [],
+        extracted: {},
+        missingFields: [],
+        isReadyForReview: false,
+        suggestedStep: 1
+      });
+
+      render(<AiAssistant onApplyDetails={vi.fn()} />);
+
+      fireEvent.click(screen.getByRole('button', { name: /pick from calendar/i }));
+
+      // Switch to date range mode
+      fireEvent.click(screen.getByRole('button', { name: /date range/i }));
+
+      const startInput = screen.getByLabelText(/start date/i);
+      const endInput = screen.getByLabelText(/end date/i);
+
+      // Invalidate with end date before start date
+      fireEvent.change(startInput, { target: { value: '2026-11-25' } });
+      fireEvent.change(endInput, { target: { value: '2026-11-20' } });
+
+      fireEvent.click(screen.getByRole('button', { name: /set date/i }));
+
+      expect(screen.getByText(/end date must be on or after start date/i)).toBeInTheDocument();
+      expect(sendSpy).not.toHaveBeenCalled();
+
+      // Fix valid date range
+      fireEvent.change(endInput, { target: { value: '2026-11-27' } });
+      fireEvent.click(screen.getByRole('button', { name: /set date/i }));
+
+      await waitFor(() => {
+        expect(sendSpy).toHaveBeenCalledWith(
+          expect.arrayContaining([
+            expect.objectContaining({ role: 'user', content: '2026-11-25 to 2026-11-27' })
+          ]),
+          undefined
+        );
+      });
+    });
+
+    it('populates dates using quick helper buttons "Today" and "This weekend"', () => {
+      render(<AiAssistant onApplyDetails={vi.fn()} />);
+
+      fireEvent.click(screen.getByRole('button', { name: /pick from calendar/i }));
+
+      const todayBtn = screen.getByRole('button', { name: /^today$/i });
+      fireEvent.click(todayBtn);
+
+      const singleInput = screen.getByLabelText(/^event date$/i) as HTMLInputElement;
+      expect(singleInput.value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+      const weekendBtn = screen.getByRole('button', { name: /^this weekend$/i });
+      fireEvent.click(weekendBtn);
+
+      const startInput = screen.getByLabelText(/start date/i) as HTMLInputElement;
+      const endInput = screen.getByLabelText(/end date/i) as HTMLInputElement;
+      expect(startInput.value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(endInput.value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(endInput.value >= startInput.value).toBe(true);
+    });
   });
 
   it('displays the demo support fallback panel when clicking "Need help"', () => {

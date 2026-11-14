@@ -17,7 +17,10 @@ const planner = z.object({
   ...common,
   category: z.literal('planner'),
   details: z.object({
-    budget: z.coerce.number().positive('Budget must be greater than zero.'),
+    budget: z.union([
+      z.coerce.number().positive('Budget must be greater than zero.'),
+      z.string().trim().min(1, 'Budget is required.')
+    ]),
     guestCount: z.coerce.number().int().positive('Guest count must be at least one.'),
     planningScope: z.enum(['Full planning', 'Partial planning', 'Day-of coordination'])
   })

@@ -6,4 +6,32 @@ describe('requirementSchema', () => {
   it('accepts valid category-specific input', () => expect(requirementSchema.safeParse(base).success).toBe(true));
   it('rejects details from the wrong category', () => expect(requirementSchema.safeParse({ ...base, category: 'crew', details: base.details }).success).toBe(false));
   it('requires an end date for a range', () => expect(requirementSchema.safeParse({ ...base, dateType: 'range' }).success).toBe(false));
+
+  it('accepts planner requirement with single numeric budget', () => {
+    const plannerBase = {
+      ...base,
+      category: 'planner' as const,
+      details: {
+        budget: 500000,
+        guestCount: 200,
+        planningScope: 'Full planning' as const
+      }
+    };
+    const parsed = requirementSchema.safeParse(plannerBase);
+    expect(parsed.success).toBe(true);
+  });
+
+  it('accepts planner requirement with readable budget range string', () => {
+    const plannerRange = {
+      ...base,
+      category: 'planner' as const,
+      details: {
+        budget: '₹1,00,000 – ₹3,00,000',
+        guestCount: 150,
+        planningScope: 'Partial planning' as const
+      }
+    };
+    const parsed = requirementSchema.safeParse(plannerRange);
+    expect(parsed.success).toBe(true);
+  });
 });
