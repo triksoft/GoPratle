@@ -27,6 +27,15 @@ export function NotesStep({ form, errors = {}, onChange }: Props) {
           </p>
         </div>
 
+        {errors.contact && (
+          <div
+            role="alert"
+            className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-semibold text-rose-800"
+          >
+            {errors.contact}
+          </div>
+        )}
+
         <div className="grid gap-4 sm:grid-cols-2">
           <TextField
             label="Phone number"

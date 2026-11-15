@@ -2,7 +2,7 @@ import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
 import { createApp } from './app.js';
 
-const validPayload = { eventName: 'Product launch', eventType: 'Launch', dateType: 'single', startDate: '2026-11-11', location: 'Pune', category: 'performer', clientSubmissionId: '80f53d33-cc58-477d-bd42-0bbdf9a3d20b', details: { performanceType: 'DJ', durationMinutes: 120, equipmentProvided: 'No, provider should bring it' } };
+const validPayload = { eventName: 'Product launch', eventType: 'Launch', dateType: 'single', startDate: '2026-11-11', location: 'Pune', category: 'performer', phone: '+91 98765 43210', clientSubmissionId: '80f53d33-cc58-477d-bd42-0bbdf9a3d20b', details: { performanceType: 'DJ', durationMinutes: 120, equipmentProvided: 'No, provider should bring it' } };
 describe('API', () => {
   it('reports health without requiring a database connection', async () => {
     const response = await request(createApp()).get('/api/health');

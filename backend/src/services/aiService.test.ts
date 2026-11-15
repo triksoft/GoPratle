@@ -248,20 +248,20 @@ describe('aiService timeout, cancellation, and model fallback', () => {
       expect(extracted.details.budget).toBe('₹1,00,000 – ₹3,00,000');
     });
 
-    it('normalizes phone number and email in normalizeExtractedDetails', () => {
-      const extracted = normalizeExtractedDetails({
+    it('does not include contact data in normalizeExtractedDetails', () => {
+      const extracted: any = normalizeExtractedDetails({
         eventName: 'Anniversary Party',
         category: 'planner',
-        phone: '  +91 98765 43210  ',
-        email: '  test@example.com  ',
+        phone: '+91 98765 43210',
+        email: 'test@example.com',
         details: {
           budget: '200000',
           guestCount: '50',
           planningScope: 'Full planning'
         }
       });
-      expect(extracted.phone).toBe('+91 98765 43210');
-      expect(extracted.email).toBe('test@example.com');
+      expect(extracted.phone).toBeUndefined();
+      expect(extracted.email).toBeUndefined();
     });
   });
 });

@@ -86,8 +86,6 @@ export type AiExtractResponse = {
     location?: string;
     venue?: string;
     category?: Category | '';
-    phone?: string;
-    email?: string;
     details?: Record<string, string>;
     notes?: string;
     missingFields?: string[];

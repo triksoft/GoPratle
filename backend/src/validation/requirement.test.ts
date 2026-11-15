@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { requirementSchema } from './requirement.js';
 
-const base = { eventName: 'Product launch', eventType: 'Launch', dateType: 'single' as const, startDate: '2026-11-11', location: 'Pune', category: 'performer' as const, clientSubmissionId: '80f53d33-cc58-477d-bd42-0bbdf9a3d20b', details: { performanceType: 'DJ', durationMinutes: 120, equipmentProvided: 'No, provider should bring it' as const } };
+const base = {
+  eventName: 'Product launch',
+  eventType: 'Launch',
+  dateType: 'single' as const,
+  startDate: '2026-11-11',
+  location: 'Pune',
+  category: 'performer' as const,
+  phone: '+91 98765 43210',
+  clientSubmissionId: '80f53d33-cc58-477d-bd42-0bbdf9a3d20b',
+  details: { performanceType: 'DJ', durationMinutes: 120, equipmentProvided: 'No, provider should bring it' as const }
+};
 describe('requirementSchema', () => {
   it('accepts valid category-specific input', () => expect(requirementSchema.safeParse(base).success).toBe(true));
   it('rejects details from the wrong category', () => expect(requirementSchema.safeParse({ ...base, category: 'crew', details: base.details }).success).toBe(false));
@@ -52,7 +62,32 @@ describe('requirementSchema', () => {
   it('accepts only phone number or only email id', () => {
     expect(requirementSchema.safeParse({ ...base, phone: '9876543210', email: '' }).success).toBe(true);
     expect(requirementSchema.safeParse({ ...base, phone: '', email: 'contact@gopratle.com' }).success).toBe(true);
-    expect(requirementSchema.safeParse({ ...base, phone: undefined, email: undefined }).success).toBe(true);
+    expect(requirementSchema.safeParse({ ...base, phone: '9876543210', email: undefined }).success).toBe(true);
+    expect(requirementSchema.safeParse({ ...base, phone: undefined, email: 'contact@gopratle.com' }).success).toBe(true);
+  });
+
+  it('rejects submission when both phone and email are empty', () => {
+    const withoutContact = { ...base, phone: '', email: '' };
+    const parsed = requirementSchema.safeParse(withoutContact);
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      const fieldErrors = parsed.error.flatten().fieldErrors as Record<string, string[] | undefined>;
+      expect(fieldErrors.contact).toContain(
+        'Enter at least a phone number or email address so we can contact you.'
+      );
+    }
+  });
+
+  it('rejects submission when phone and email are undefined', () => {
+    const withoutContact = { ...base, phone: undefined, email: undefined };
+    const parsed = requirementSchema.safeParse(withoutContact);
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      const fieldErrors = parsed.error.flatten().fieldErrors as Record<string, string[] | undefined>;
+      expect(fieldErrors.contact).toContain(
+        'Enter at least a phone number or email address so we can contact you.'
+      );
+    }
   });
 
   it('rejects invalid email format', () => {

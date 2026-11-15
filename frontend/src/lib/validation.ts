@@ -35,14 +35,19 @@ export function validateStep(form: RequirementForm, step: number): FieldErrors {
     if (!d.teamSize || Number(d.teamSize) < 1) errors.teamSize = 'Enter a team size.';
   }
   if (step === 3 || step === 4) {
-    if (form.phone && form.phone.trim()) {
-      const digitsOnly = form.phone.replace(/\D/g, '');
+    const hasPhone = Boolean(form.phone && form.phone.trim());
+    const hasEmail = Boolean(form.email && form.email.trim());
+    if (!hasPhone && !hasEmail) {
+      errors.contact = 'Enter at least a phone number or email address so we can contact you.';
+    }
+    if (hasPhone) {
+      const digitsOnly = (form.phone || '').replace(/\D/g, '');
       if (digitsOnly.length < 7 || digitsOnly.length > 15) {
         errors.phone = 'Please enter a valid phone number (7 to 15 digits).';
       }
     }
-    if (form.email && form.email.trim()) {
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+    if (hasEmail) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((form.email || '').trim())) {
         errors.email = 'Please enter a valid email address.';
       }
     }

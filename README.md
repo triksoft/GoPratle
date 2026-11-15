@@ -33,7 +33,7 @@ Google Gemini API    MongoDB Atlas
 1. **Four-Step Requirement Wizard**:
    - Step 1: Event Basics (name, type, single date or date range, city/venue, category).
    - Step 2: Category-Specific Details (strongly typed for Planners, Performers, and Crew).
-   - Step 3: Optional finishing touches and notes.
+   - Step 3: Contact Details & Notes (requires at least one valid phone number or email address; strictly entered via manual form and never sent to Gemini).
    - Step 4: Review and submit with idempotent UUID enforcement (`X-Idempotency-Key`).
    - Changing categories safely resets category details to prevent stale attributes from being saved.
 
@@ -64,6 +64,7 @@ Google Gemini API    MongoDB Atlas
    - Manual requirement posting remains available 100% of the time.
 
 4. **Real Admin Dashboard (`/dashboard`)**:
+   > **Note**: This MVP dashboard is authentication-free. Authentication and role-based access must be added before exposing real customer contact data in production.
    - Real-time MongoDB requirement records and metrics:
      - Total requirements count.
      - Category breakdown (Planner, Performer, Crew counts).
@@ -72,7 +73,7 @@ Google Gemini API    MongoDB Atlas
    - Searchable and filterable table:
      - Filter by category, status, date range (`dateFrom` / `dateTo`), event type, and keyword search.
      - Server-side Zod validation, pagination, and sorting.
-   - Requirement detail modal and standalone page (`/dashboard/requirements/[id]`).
+   - Requirement detail modal and standalone page (`/dashboard/requirements/[id]`). Contact phone numbers (`tel:`) and email addresses (`mailto:`) are protected and displayed only in the individual detail views.
    - Interactive status update control calling `PATCH /api/requirements/:id/status`. Allowed statuses: `new`, `reviewing`, `contacted`, `confirmed`, `closed`.
 
 5. **Real Event Calendar (`/dashboard/calendar`)**:

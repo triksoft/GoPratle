@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { CategoryBadge, StatusBadge } from '@/components/Badges';
-import { updateRequirementStatus } from '@/lib/api';
+import { fetchRequirementById, updateRequirementStatus } from '@/lib/api';
 import { formatBudgetDisplay } from '@/lib/format';
 import {
   categoryLabel,
@@ -24,6 +24,16 @@ export function RequirementDetailModal({ requirement, onClose, onStatusUpdated }
   const [updating, setUpdating] = useState(false);
   const [currentReq, setCurrentReq] = useState<StoredRequirement | null>(requirement);
   const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    if (!requirement?._id) return;
+    setCurrentReq(requirement);
+    fetchRequirementById(requirement._id)
+      .then(full => {
+        if (full) setCurrentReq(full);
+      })
+      .catch(() => {});
+  }, [requirement]);
 
   if (!currentReq) return null;
 

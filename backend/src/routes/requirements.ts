@@ -109,9 +109,7 @@ export function requirementRouter(repository: RequirementRepository = Requiremen
         { eventType: s },
         { location: s },
         { venue: s },
-        { notes: s },
-        { phone: s },
-        { email: s }
+        { notes: s }
       ];
     }
 
@@ -174,7 +172,13 @@ export function requirementRouter(repository: RequirementRepository = Requiremen
         upcoming: upcomingCount
       };
 
-      const data = Array.isArray(rawData) ? rawData.map(serialise) : [];
+      // Protect contact data in list response: omit phone and email
+      const data = Array.isArray(rawData)
+        ? rawData.map(serialise).map((item: any) => {
+            const { phone, email, ...rest } = item;
+            return rest;
+          })
+        : [];
 
       return res.status(200).json({
         data,

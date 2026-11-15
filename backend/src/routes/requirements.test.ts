@@ -12,6 +12,8 @@ const sampleRequirement = {
   location: 'Hyderabad',
   venue: 'HICC',
   category: 'planner',
+  phone: '+91 98765 43210',
+  email: 'test@event.com',
   details: { budget: 500000, guestCount: 300, planningScope: 'Full planning' },
   notes: 'Keynotes and breakout tracks.',
   clientSubmissionId: '99f53d33-cc58-477d-bd42-0bbdf9a3d20c',
@@ -45,6 +47,9 @@ describe('Requirements API (Dashboard & Calendar)', () => {
     expect(response.status).toBe(200);
     expect(response.body.data).toHaveLength(1);
     expect(response.body.data[0].eventName).toBe('Tech Conference 2026');
+    // Contact information must be omitted from list response to protect data
+    expect(response.body.data[0].phone).toBeUndefined();
+    expect(response.body.data[0].email).toBeUndefined();
     expect(response.body.pagination).toEqual({
       page: 1,
       limit: 5,
@@ -130,6 +135,8 @@ describe('Requirements API (Dashboard & Calendar)', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.requirement._id).toBe(sampleRequirement._id);
+    expect(response.body.requirement.phone).toBe('+91 98765 43210');
+    expect(response.body.requirement.email).toBe('test@event.com');
     expect(mockRepo.findById).toHaveBeenCalledWith(sampleRequirement._id);
   });
 
@@ -206,8 +213,9 @@ describe('Requirements API (Dashboard & Calendar)', () => {
   it('accepts phoneNumber and emailId aliases when creating requirement', async () => {
     const create = vi.fn().mockImplementation((input: any) => Promise.resolve({ _id: 'req-aliases', ...input }));
     const app = createApp({ repository: { create, findOne: vi.fn() } });
+    const { phone: _p, email: _e, ...rest } = sampleRequirement;
     const payload = {
-      ...sampleRequirement,
+      ...rest,
       phoneNumber: '9876543210',
       emailId: 'alias@event.com',
       clientSubmissionId: '123e4567-e89b-12d3-a456-426614174001'
@@ -224,5 +232,27 @@ describe('Requirements API (Dashboard & Calendar)', () => {
         email: 'alias@event.com'
       })
     );
+  });
+
+  it('rejects POST /api/requirements when both phone and email are empty', async () => {
+    const create = vi.fn();
+    const app = createApp({ repository: { create, findOne: vi.fn() } });
+    const payload = {
+      ...sampleRequirement,
+      phone: '',
+      email: '',
+      clientSubmissionId: '123e4567-e89b-12d3-a456-426614174002'
+    };
+
+    const response = await request(app)
+      .post('/api/requirements')
+      .send(payload);
+
+    expect(response.status).toBe(422);
+    expect(response.body.message).toBe('Please correct the invalid fields.');
+    expect(response.body.errors.contact).toContain(
+      'Enter at least a phone number or email address so we can contact you.'
+    );
+    expect(create).not.toHaveBeenCalled();
   });
 });

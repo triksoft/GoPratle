@@ -71,6 +71,16 @@ export const requirementSchema = z.discriminatedUnion('category', [planner, perf
   if (value.dateType === 'range' && !value.endDate) context.addIssue({ code: z.ZodIssueCode.custom, path: ['endDate'], message: 'End date is required for a date range.' });
   if (value.dateType === 'single' && value.endDate) context.addIssue({ code: z.ZodIssueCode.custom, path: ['endDate'], message: 'End date is not allowed for a single-day event.' });
   if (value.dateType === 'range' && value.endDate && value.startDate > value.endDate) context.addIssue({ code: z.ZodIssueCode.custom, path: ['endDate'], message: 'End date must be on or after start date.' });
+
+  const hasPhone = Boolean(value.phone && value.phone.trim());
+  const hasEmail = Boolean(value.email && value.email.trim());
+  if (!hasPhone && !hasEmail) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['contact'],
+      message: 'Enter at least a phone number or email address so we can contact you.'
+    });
+  }
 });
 
 export type ValidRequirement = z.infer<typeof requirementSchema>;

@@ -74,8 +74,6 @@ export function RequirementWizard() {
         venue: extracted.venue !== undefined ? extracted.venue : current.venue,
         category: targetCategory,
         details: mergedDetails,
-        phone: extracted.phone || current.phone,
-        email: extracted.email || current.email,
         notes: extracted.notes || current.notes
       };
     });

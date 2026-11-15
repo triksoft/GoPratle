@@ -353,8 +353,6 @@ Expected JSON output format:
   "location": "City or area, e.g. Bangalore",
   "venue": "Specific venue name or empty string",
   "category": "planner" | "performer" | "crew",
-  "phone": "User contact phone number or empty string",
-  "email": "User contact email address or empty string",
   "details": {
     // If category is "planner":
     // "budget": numeric string or number,
@@ -412,9 +410,7 @@ We are gathering event requirements to pre-fill a four-step event requirement fo
      - crewRole (e.g. "Sound engineer", "Decorator", "Lighting technician")
      - shiftHours (numeric string or number)
      - teamSize (numeric string or number)
-3. Notes & Contact Information:
-   - phone: User contact phone number if mentioned (e.g. "+91 9876543210")
-   - email: User contact email address if mentioned (e.g. "rohan@example.com")
+3. Notes:
    - notes: Any special requests, themes, music genres, or additional context.
 
 CONVERSATION INSTRUCTIONS:
@@ -442,8 +438,6 @@ Output JSON Format:
     "location": "...",
     "venue": "",
     "category": "planner" | "performer" | "crew" | "",
-    "phone": "...",
-    "email": "...",
     "details": { ... },
     "notes": "...",
     "missingFields": ["..."]
@@ -457,8 +451,17 @@ Output JSON Format:
     .map(m => `${m.role === 'assistant' ? 'Assistant' : 'Customer'}: ${m.content}`)
     .join('\n');
 
+  // Never send contact information (phone/email) to Gemini
+  const safeExtracted = currentExtracted && typeof currentExtracted === 'object'
+    ? Object.fromEntries(
+        Object.entries(currentExtracted).filter(
+          ([k]) => !['phone', 'email', 'phoneNumber', 'emailId'].includes(k)
+        )
+      )
+    : undefined;
+
   const prompt = `Current conversation:\n${conversationText}\n\n${
-    currentExtracted ? `Previously extracted state:\n${JSON.stringify(currentExtracted, null, 2)}\n\n` : ''
+    safeExtracted ? `Previously extracted state:\n${JSON.stringify(safeExtracted, null, 2)}\n\n` : ''
   }Generate the JSON response following the system instructions:`;
 
   return callGeminiWithFallback(prompt, systemInstruction);
@@ -553,8 +556,6 @@ export function normalizeExtractedDetails(data: any): ExtractedAiDetails {
     location: typeof data.location === 'string' ? data.location.trim() : '',
     venue: typeof data.venue === 'string' ? data.venue.trim() : '',
     category: validCategory as any,
-    phone: typeof data.phone === 'string' ? data.phone.trim() : typeof data.phoneNumber === 'string' ? data.phoneNumber.trim() : '',
-    email: typeof data.email === 'string' ? data.email.trim() : typeof data.emailId === 'string' ? data.emailId.trim() : '',
     details: normalizedDetails,
     notes: typeof data.notes === 'string' ? data.notes.trim() : '',
     missingFields: missing
