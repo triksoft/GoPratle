@@ -6,8 +6,13 @@ import { formatBudgetDisplay } from '@/lib/format';
 import type { AiChatResponse, Category, ChatMessage } from '@/types/requirement';
 
 type Props = {
-  onApplyDetails: (data: AiChatResponse['extracted'], targetStep: number) => void;
+  onApplyDetails: (
+    data: AiChatResponse['extracted'],
+    targetStep: number,
+    contact?: { phone?: string; email?: string }
+  ) => void;
   onContinueManually?: () => void;
+  contact?: { phone?: string; email?: string };
 };
 
 const INITIAL_GREETING = 'Hi! I’m your GoPratle event assistant. What are you planning?';
@@ -111,7 +116,7 @@ function getThisWeekendDateRange(): { start: string; end: string } {
   return { start: format(saturday), end: format(sunday) };
 }
 
-export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
+export function AiAssistant({ onApplyDetails, onContinueManually, contact }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: 'assistant', content: INITIAL_GREETING }
   ]);
@@ -137,6 +142,30 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
   const [rangeEnd, setRangeEnd] = useState('');
   const [datePickerError, setDatePickerError] = useState('');
 
+  // Local Contact Details Step
+  const [showContactPanel, setShowContactPanel] = useState(false);
+  const [contactPhone, setContactPhone] = useState(contact?.phone || '');
+  const [contactEmail, setContactEmail] = useState(contact?.email || '');
+  const [contactError, setContactError] = useState('');
+
+  useEffect(() => {
+    if (contact?.phone && !contactPhone) setContactPhone(contact.phone);
+    if (contact?.email && !contactEmail) setContactEmail(contact.email);
+  }, [contact]);
+
+  const hasContactPhone = Boolean(contactPhone && contactPhone.trim());
+  const hasContactEmail = Boolean(contactEmail && contactEmail.trim());
+  const cleanContactPhone = (contactPhone || '').replace(/\D/g, '');
+  const isPhoneValid =
+    !hasContactPhone ||
+    (/^[+]?[\d\s\-().]{7,25}$/.test(contactPhone.trim()) &&
+      cleanContactPhone.length >= 7 &&
+      cleanContactPhone.length <= 15);
+  const isEmailValid =
+    !hasContactEmail || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((contactEmail || '').trim());
+  const isContactComplete =
+    (hasContactPhone || hasContactEmail) && isPhoneValid && isEmailValid;
+
   const scrollChatToBottom = (smooth = true) => {
     const container = chatContainerRef.current;
     if (!container) return;
@@ -160,7 +189,7 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
     if (!isScrolledUp) {
       scrollChatToBottom(true);
     }
-  }, [messages, loading]);
+  }, [messages, loading, showContactPanel]);
 
   const handleManualRedirect = () => {
     if (onContinueManually) {
@@ -176,13 +205,29 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
     const trimmed = textToSend.trim();
     if (!trimmed || loading) return;
 
+    const lower = trimmed.toLowerCase();
+    if (lower === 'add contact details' || lower === 'contact details') {
+      setShowContactPanel(true);
+      return;
+    }
+
+    if (
+      lower === 'review details in form' ||
+      lower === 'continue to review' ||
+      lower === 'review event details' ||
+      lower === 'review in form'
+    ) {
+      handleReviewDetails();
+      return;
+    }
+
     // Check if the user selected the "Pick from calendar" chip
-    if (trimmed.toLowerCase().includes('pick from calendar') || trimmed.toLowerCase() === 'calendar') {
+    if (lower.includes('pick from calendar') || lower === 'calendar') {
       setShowDatePicker(true);
       return;
     }
 
-    if (trimmed.toLowerCase() === 'need help' || trimmed.toLowerCase() === 'need help?') {
+    if (lower === 'need help' || lower === 'need help?') {
       setShowSupportPanel(true);
       return;
     }
@@ -201,18 +246,38 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
     setIsScrolledUp(false);
 
     try {
-      const response = await sendAiChatMessage(nextMessages, extractedDetails || undefined);
+      // Exclude local non-Gemini messages from history sent to Gemini
+      const geminiHistory = nextMessages.filter(
+        m => m.content !== 'Great — I have your event details. How should our team contact you?'
+      );
+      const response = await sendAiChatMessage(geminiHistory, extractedDetails || undefined);
 
-      setMessages(prev => [
-        ...prev,
-        { role: 'assistant', content: response.assistantMessage }
-      ]);
-      setQuickReplies(response.quickReplies && response.quickReplies.length > 0 ? response.quickReplies : []);
       if (response.extracted) {
         setExtractedDetails(response.extracted);
       }
       setIsReadyForReview(Boolean(response.isReadyForReview));
-      setSuggestedStep(response.suggestedStep || 1);
+      setSuggestedStep(response.suggestedStep || 4);
+
+      if (response.isReadyForReview) {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: response.assistantMessage },
+          {
+            role: 'assistant',
+            content: 'Great — I have your event details. How should our team contact you?'
+          }
+        ]);
+        setShowContactPanel(true);
+        setQuickReplies(
+          isContactComplete ? ['Review details in form'] : ['Add contact details']
+        );
+      } else {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: response.assistantMessage }
+        ]);
+        setQuickReplies(response.quickReplies && response.quickReplies.length > 0 ? response.quickReplies : []);
+      }
     } catch (err: any) {
       const friendly = resolveFriendlyError(err);
       setError(friendly);
@@ -227,20 +292,39 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
     if (lastUserMessage) {
       const lastIndex = messages.lastIndexOf(lastUserMessage);
       const subMessages = messages.slice(0, lastIndex + 1);
+      const geminiSubMessages = subMessages.filter(
+        m => m.content !== 'Great — I have your event details. How should our team contact you?'
+      );
       setLoading(true);
       setError(null);
-      sendAiChatMessage(subMessages, extractedDetails || undefined)
+      sendAiChatMessage(geminiSubMessages, extractedDetails || undefined)
         .then(response => {
-          setMessages([
-            ...subMessages,
-            { role: 'assistant', content: response.assistantMessage }
-          ]);
-          setQuickReplies(response.quickReplies && response.quickReplies.length > 0 ? response.quickReplies : []);
           if (response.extracted) {
             setExtractedDetails(response.extracted);
           }
           setIsReadyForReview(Boolean(response.isReadyForReview));
-          setSuggestedStep(response.suggestedStep || 1);
+          setSuggestedStep(response.suggestedStep || 4);
+
+          if (response.isReadyForReview) {
+            setMessages([
+              ...subMessages,
+              { role: 'assistant', content: response.assistantMessage },
+              {
+                role: 'assistant',
+                content: 'Great — I have your event details. How should our team contact you?'
+              }
+            ]);
+            setShowContactPanel(true);
+            setQuickReplies(
+              isContactComplete ? ['Review details in form'] : ['Add contact details']
+            );
+          } else {
+            setMessages([
+              ...subMessages,
+              { role: 'assistant', content: response.assistantMessage }
+            ]);
+            setQuickReplies(response.quickReplies && response.quickReplies.length > 0 ? response.quickReplies : []);
+          }
         })
         .catch(err => {
           const friendly = resolveFriendlyError(err);
@@ -253,11 +337,35 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
     }
   };
 
-  // Issue 2: Review details action
+  // Review details action: validates contact info and navigates to Step 4 Review
   const handleReviewDetails = () => {
     if (!extractedDetails) return;
-    // Always pre-fill and direct customer to the beginning of the wizard for review
-    onApplyDetails(extractedDetails, 1);
+    setContactError('');
+
+    if (!hasContactPhone && !hasContactEmail) {
+      setShowContactPanel(true);
+      setContactError('Enter at least a phone number or email address so we can contact you.');
+      return;
+    }
+    if (hasContactPhone && !isPhoneValid) {
+      setShowContactPanel(true);
+      setContactError('Please enter a valid phone number (7-15 digits).');
+      return;
+    }
+    if (hasContactEmail && !isEmailValid) {
+      setShowContactPanel(true);
+      setContactError('Please enter a valid email address.');
+      return;
+    }
+
+    onApplyDetails(
+      extractedDetails,
+      4,
+      {
+        phone: contactPhone.trim(),
+        email: contactEmail.trim()
+      }
+    );
     setAppliedNotice(true);
     handleManualRedirect();
   };
@@ -273,6 +381,8 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
     setShowSupportPanel(false);
     setAppliedNotice(false);
     setShowDatePicker(false);
+    setShowContactPanel(false);
+    setContactError('');
     setIsScrolledUp(false);
   };
 
@@ -442,6 +552,86 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
               </div>
             </div>
           )}
+
+          {/* Local Contact Details Panel in Chat */}
+          {showContactPanel && (
+            <div
+              role="region"
+              aria-label="Contact details"
+              className="mt-1 rounded-2xl border border-indigo-200 bg-white p-4 shadow-xs space-y-3"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900">
+                    How should our team contact you?
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Enter at least one contact method.
+                  </p>
+                </div>
+                <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
+                  Direct Contact
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="chat-contact-phone" className="block text-[11px] font-medium text-slate-600 mb-1">
+                    Phone number
+                  </label>
+                  <input
+                    id="chat-contact-phone"
+                    type="tel"
+                    value={contactPhone}
+                    onChange={e => {
+                      setContactPhone(e.target.value);
+                      setContactError('');
+                    }}
+                    placeholder="+91 98765 43210"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs text-slate-900 shadow-xs focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="chat-contact-email" className="block text-[11px] font-medium text-slate-600 mb-1">
+                    Email address
+                  </label>
+                  <input
+                    id="chat-contact-email"
+                    type="email"
+                    value={contactEmail}
+                    onChange={e => {
+                      setContactEmail(e.target.value);
+                      setContactError('');
+                    }}
+                    placeholder="you@example.com"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs text-slate-900 shadow-xs focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  />
+                </div>
+              </div>
+
+              {contactError && (
+                <div role="alert" className="text-[11px] font-medium text-rose-600">
+                  {contactError}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2.5">
+                <span className="text-[11px] text-slate-400">
+                  {isContactComplete ? '✓ Contact method provided' : 'Phone, email, or both required'}
+                </span>
+
+                {isContactComplete && (
+                  <button
+                    type="button"
+                    onClick={handleReviewDetails}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <span>Continue to review →</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Floating Jump-to-Latest Button */}
@@ -456,7 +646,7 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
         )}
       </div>
 
-      {/* Issue 2: Extracted Details Card with explicit "Review details in form" label */}
+      {/* Extracted Details Card */}
       {extractedDetails && (isReadyForReview || extractedDetails.eventType || extractedDetails.eventName) && (
         <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3 sm:p-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -501,13 +691,26 @@ export function AiAssistant({ onApplyDetails, onContinueManually }: Props) {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={handleReviewDetails}
-              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              Review details in form →
-            </button>
+            {isContactComplete ? (
+              <button
+                type="button"
+                onClick={handleReviewDetails}
+                className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                Review details in form →
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowContactPanel(true);
+                  scrollChatToBottom(true);
+                }}
+                className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                Add contact details →
+              </button>
+            )}
           </div>
         </div>
       )}

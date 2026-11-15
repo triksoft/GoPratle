@@ -51,7 +51,8 @@ export function RequirementWizard() {
 
   const handleApplyAiDetails = (
     extracted: AiExtractResponse['extracted'],
-    suggestedStep: number
+    suggestedStep: number,
+    contact?: { phone?: string; email?: string }
   ) => {
     setForm(current => {
       const targetCategory = (extracted.category || current.category) as Category | '';
@@ -74,6 +75,8 @@ export function RequirementWizard() {
         venue: extracted.venue !== undefined ? extracted.venue : current.venue,
         category: targetCategory,
         details: mergedDetails,
+        phone: contact?.phone !== undefined && contact.phone !== '' ? contact.phone : current.phone,
+        email: contact?.email !== undefined && contact.email !== '' ? contact.email : current.email,
         notes: extracted.notes || current.notes
       };
     });
@@ -82,7 +85,7 @@ export function RequirementWizard() {
     setStatus('idle');
     setMessage('');
     setWizardNotice('Details added to the form. Please review and post your requirement.');
-    setStep(1);
+    setStep(suggestedStep || 4);
   };
 
   const next = () => {
@@ -157,7 +160,10 @@ export function RequirementWizard() {
 
       {/* Feature 1: Optional Plan with AI Assistant */}
       <div className="mb-6">
-        <AiAssistant onApplyDetails={handleApplyAiDetails} />
+        <AiAssistant
+          onApplyDetails={handleApplyAiDetails}
+          contact={{ phone: form.phone, email: form.email }}
+        />
       </div>
 
       {/* Step Wizard Form */}

@@ -200,15 +200,33 @@ export function aiRouter(options: AiRouterOptions = {}) {
       const normalizedExtracted = normalizeExtractedDetails(rawExtracted);
       const validatedExtracted = extractedAiDetailsSchema.safeParse(normalizedExtracted);
 
-      const assistantMessage =
+      let assistantMessage =
         typeof parsedJson.assistantMessage === 'string' && parsedJson.assistantMessage.trim()
           ? parsedJson.assistantMessage.trim()
           : "I've noted your requirements. Could you share any more details, or are you ready to review?";
 
+      // Sanitize any false submission language from AI output
+      if (
+        /\b(successfully posted|has been posted|have been posted|is posted|was posted|confirmed and post|confirm and post|requirement has been saved|event is posted|requirement is confirmed)\b/i.test(
+          assistantMessage
+        )
+      ) {
+        assistantMessage = 'Your draft is ready for review.';
+      }
+
       const quickReplies: string[] = Array.isArray(parsedJson.quickReplies)
         ? parsedJson.quickReplies
             .filter((q: any) => typeof q === 'string' && q.trim())
-            .map((q: string) => q.trim())
+            .map((q: string) => {
+              const trimmed = q.trim();
+              if (/confirm\s+and\s+post/i.test(trimmed) || /yes,\s*review\s*now/i.test(trimmed)) {
+                return 'Add contact details';
+              }
+              if (/\bpost\b/i.test(trimmed) || /\bsubmit\b/i.test(trimmed)) {
+                return 'Review details in form';
+              }
+              return trimmed;
+            })
         : [];
 
       const extractedData = validatedExtracted.success ? validatedExtracted.data : normalizedExtracted;

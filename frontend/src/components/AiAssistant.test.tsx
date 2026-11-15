@@ -69,7 +69,7 @@ describe('AiAssistant Guided Chat Component', () => {
     expect(screen.getByRole('button', { name: /next saturday in bangalore/i })).toBeInTheDocument();
   });
 
-  it('shows "Review details in form" button and does NOT submit requirement to POST /api/requirements', async () => {
+  it('shows local contact step when details are ready and blocks review until contact method is entered', async () => {
     const onApplyDetails = vi.fn();
     const createReqSpy = vi.spyOn(api, 'createRequirement').mockResolvedValue({
       message: 'Created',
@@ -89,12 +89,12 @@ describe('AiAssistant Guided Chat Component', () => {
     };
 
     const mockResponse: AiChatResponse = {
-      assistantMessage: 'I have all your details! Click Review details in form below to proceed.',
+      assistantMessage: 'I have all your details!',
       quickReplies: [],
       extracted: mockExtracted,
       missingFields: [],
       isReadyForReview: true,
-      suggestedStep: 1
+      suggestedStep: 4
     };
 
     vi.spyOn(api, 'sendAiChatMessage').mockResolvedValueOnce(mockResponse);
@@ -104,26 +104,157 @@ describe('AiAssistant Guided Chat Component', () => {
     const birthdayBtn = screen.getByRole('button', { name: /birthday party/i });
     fireEvent.click(birthdayBtn);
 
+    // Displays the local non-Gemini message
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /review details in form/i })).toBeInTheDocument();
+      expect(
+        screen.getByText(/great — i have your event details\. how should our team contact you\?/i)
+      ).toBeInTheDocument();
     });
 
-    const reviewBtn = screen.getByRole('button', { name: /review details in form/i });
-    fireEvent.click(reviewBtn);
+    // Shows contact panel directly in chat
+    expect(screen.getByRole('region', { name: /contact details/i })).toBeInTheDocument();
+    expect(screen.getByText(/enter at least one contact method\./i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/phone number/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/email address/i)).toBeInTheDocument();
 
-    // Pre-fills form
-    expect(onApplyDetails).toHaveBeenCalledWith(mockExtracted, 1);
+    // "Continue to review" is NOT visible yet because both phone and email are empty
+    expect(screen.queryByRole('button', { name: /continue to review/i })).not.toBeInTheDocument();
+
+    // Clicking "Add contact details" in captured details card triggers focus/keeps contact panel open
+    const addContactBtns = screen.getAllByRole('button', { name: /add contact details/i });
+    expect(addContactBtns.length).toBeGreaterThanOrEqual(1);
+
+    // Enter valid phone only
+    const phoneInput = screen.getByLabelText(/phone number/i);
+    fireEvent.change(phoneInput, { target: { value: '+91 98765 43210' } });
+
+    // "Continue to review" now appears
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /continue to review/i })).toBeInTheDocument();
+    });
+
+    const continueReviewBtn = screen.getByRole('button', { name: /continue to review/i });
+    fireEvent.click(continueReviewBtn);
+
+    // Pre-fills form with extracted details and contact info, pointing to Step 4
+    expect(onApplyDetails).toHaveBeenCalledWith(
+      mockExtracted,
+      4,
+      { phone: '+91 98765 43210', email: '' }
+    );
 
     // Explicitly displays review notice
-    expect(screen.getByRole('status')).toHaveTextContent(
-      /details added to the form/i
-    );
-    expect(screen.getByRole('status')).toHaveTextContent(
-      /please review and post your requirement/i
-    );
+    expect(screen.getByRole('status')).toHaveTextContent(/details added to the form/i);
+    expect(screen.getByRole('status')).toHaveTextContent(/please review and post your requirement/i);
 
-    // MUST NOT call createRequirement
+    // MUST NOT call createRequirement directly from chat
     expect(createReqSpy).not.toHaveBeenCalled();
+  });
+
+  it('allows email only and both phone and email in the local contact step', async () => {
+    const onApplyDetails = vi.fn();
+    const mockExtracted = {
+      eventName: 'Corporate Annual Meet',
+      eventType: 'Corporate event',
+      category: 'planner' as const,
+      details: {}
+    };
+
+    const mockResponse: AiChatResponse = {
+      assistantMessage: 'Details captured!',
+      quickReplies: [],
+      extracted: mockExtracted,
+      missingFields: [],
+      isReadyForReview: true,
+      suggestedStep: 4
+    };
+
+    vi.spyOn(api, 'sendAiChatMessage').mockResolvedValueOnce(mockResponse);
+
+    render(<AiAssistant onApplyDetails={onApplyDetails} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /corporate event/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: /contact details/i })).toBeInTheDocument();
+    });
+
+    // Provide email only
+    const emailInput = screen.getByLabelText(/email address/i);
+    fireEvent.change(emailInput, { target: { value: 'organizer@company.com' } });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /continue to review/i })).toBeInTheDocument();
+    });
+
+    // Also provide phone
+    const phoneInput = screen.getByLabelText(/phone number/i);
+    fireEvent.change(phoneInput, { target: { value: '+91 99887 76655' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /continue to review/i }));
+
+    expect(onApplyDetails).toHaveBeenCalledWith(
+      mockExtracted,
+      4,
+      { phone: '+91 99887 76655', email: 'organizer@company.com' }
+    );
+  });
+
+  it('does NOT send contact inquiry or contact data to Gemini', async () => {
+    const spySend = vi.spyOn(api, 'sendAiChatMessage').mockResolvedValue({
+      assistantMessage: 'Sure, tell me more.',
+      quickReplies: [],
+      extracted: {},
+      missingFields: [],
+      isReadyForReview: false,
+      suggestedStep: 1
+    });
+
+    render(<AiAssistant onApplyDetails={vi.fn()} />);
+
+    // Click Birthday party
+    fireEvent.click(screen.getByRole('button', { name: /birthday party/i }));
+
+    await waitFor(() => {
+      expect(spySend).toHaveBeenCalledTimes(1);
+    });
+
+    // Verify messages sent to Gemini do NOT include the local contact prompt
+    const callArgs = spySend.mock.calls[0][0];
+    const hasContactPrompt = callArgs.some(m =>
+      m.content.includes('Great — I have your event details. How should our team contact you?')
+    );
+    expect(hasContactPrompt).toBe(false);
+  });
+
+  it('does not display false post claims in chat', async () => {
+    const mockResponse: AiChatResponse = {
+      assistantMessage: 'Your draft is ready for review.',
+      quickReplies: ['Review details in form'],
+      extracted: {
+        eventType: 'Wedding',
+        category: 'planner',
+        details: {}
+      },
+      missingFields: [],
+      isReadyForReview: true,
+      suggestedStep: 4
+    };
+
+    vi.spyOn(api, 'sendAiChatMessage').mockResolvedValueOnce(mockResponse);
+
+    render(<AiAssistant onApplyDetails={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /wedding/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/your draft is ready for review\./i)).toBeInTheDocument();
+    });
+
+    // Confirm no false claims of posting in the DOM
+    expect(screen.queryByText(/successfully posted/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/event is posted/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/confirm and post/i)).not.toBeInTheDocument();
   });
 
   it('preserves and displays budget range without corrupting into large numbers', async () => {
