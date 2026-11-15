@@ -1,4 +1,4 @@
-const steps = ['Event basics', 'Your requirements', 'Additional notes', 'Review'];
+const steps = ['Event basics', 'Your requirements', 'Contact & notes', 'Review'];
 
 export function Progress({ current }: { current: number }) {
   return <ol className="grid grid-cols-4 gap-1.5" aria-label="Submission progress">

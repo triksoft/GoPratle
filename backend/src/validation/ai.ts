@@ -33,6 +33,8 @@ export const extractedAiDetailsSchema = z.object({
   location: z.string().catch('').default(''),
   venue: z.string().catch('').default(''),
   category: z.enum(['planner', 'performer', 'crew', '']).catch('').default(''),
+  phone: z.string().catch('').default(''),
+  email: z.string().catch('').default(''),
   details: z.record(z.string(), z.any()).catch({}).default({}),
   notes: z.string().catch('').default(''),
   missingFields: z.array(z.string()).catch([]).default([])

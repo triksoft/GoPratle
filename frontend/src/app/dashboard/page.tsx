@@ -442,6 +442,12 @@ export default function DashboardPage() {
                           {req.eventName}
                         </div>
                         <div className="text-xs text-slate-500">{req.eventType}</div>
+                        {(req.phone || req.email) && (
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                            {req.phone && <span>📞 {req.phone}</span>}
+                            {req.email && <span>✉️ {req.email}</span>}
+                          </div>
+                        )}
                       </td>
 
                       <td className="px-4 py-4 whitespace-nowrap">

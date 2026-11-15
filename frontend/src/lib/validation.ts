@@ -34,5 +34,18 @@ export function validateStep(form: RequirementForm, step: number): FieldErrors {
     if (!d.shiftHours || Number(d.shiftHours) < 1) errors.shiftHours = 'Enter shift length in hours.';
     if (!d.teamSize || Number(d.teamSize) < 1) errors.teamSize = 'Enter a team size.';
   }
+  if (step === 3 || step === 4) {
+    if (form.phone && form.phone.trim()) {
+      const digitsOnly = form.phone.replace(/\D/g, '');
+      if (digitsOnly.length < 7 || digitsOnly.length > 15) {
+        errors.phone = 'Please enter a valid phone number (7 to 15 digits).';
+      }
+    }
+    if (form.email && form.email.trim()) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+        errors.email = 'Please enter a valid email address.';
+      }
+    }
+  }
   return errors;
 }

@@ -11,6 +11,8 @@ const RequirementSchema = new Schema<RequirementInput>({
   venue: { type: String, trim: true },
   category: { type: String, enum: ['planner', 'performer', 'crew'], required: true },
   details: { type: Schema.Types.Mixed, required: true },
+  phone: { type: String, trim: true },
+  email: { type: String, trim: true, lowercase: true },
   notes: { type: String, trim: true },
   clientSubmissionId: { type: String, required: true, unique: true, index: true },
   status: {
@@ -24,6 +26,8 @@ const RequirementSchema = new Schema<RequirementInput>({
 RequirementSchema.index({ status: 1 });
 RequirementSchema.index({ category: 1 });
 RequirementSchema.index({ startDate: 1 });
+RequirementSchema.index({ phone: 1 });
+RequirementSchema.index({ email: 1 });
 RequirementSchema.index({ createdAt: -1 });
 
 export const Requirement = models.Requirement || model<RequirementInput>('Requirement', RequirementSchema);

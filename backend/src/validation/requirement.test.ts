@@ -34,4 +34,42 @@ describe('requirementSchema', () => {
     const parsed = requirementSchema.safeParse(plannerRange);
     expect(parsed.success).toBe(true);
   });
+
+  it('accepts valid phone number and email', () => {
+    const withContact = {
+      ...base,
+      phone: '+91 98765 43210',
+      email: 'ananya@example.com'
+    };
+    const parsed = requirementSchema.safeParse(withContact);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.phone).toBe('+91 98765 43210');
+      expect(parsed.data.email).toBe('ananya@example.com');
+    }
+  });
+
+  it('accepts only phone number or only email id', () => {
+    expect(requirementSchema.safeParse({ ...base, phone: '9876543210', email: '' }).success).toBe(true);
+    expect(requirementSchema.safeParse({ ...base, phone: '', email: 'contact@gopratle.com' }).success).toBe(true);
+    expect(requirementSchema.safeParse({ ...base, phone: undefined, email: undefined }).success).toBe(true);
+  });
+
+  it('rejects invalid email format', () => {
+    const invalidEmail = {
+      ...base,
+      email: 'not-an-email'
+    };
+    const parsed = requirementSchema.safeParse(invalidEmail);
+    expect(parsed.success).toBe(false);
+  });
+
+  it('rejects invalid phone number format', () => {
+    const invalidPhone = {
+      ...base,
+      phone: 'not-a-number'
+    };
+    const parsed = requirementSchema.safeParse(invalidPhone);
+    expect(parsed.success).toBe(false);
+  });
 });

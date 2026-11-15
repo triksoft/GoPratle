@@ -74,6 +74,8 @@ export function RequirementWizard() {
         venue: extracted.venue !== undefined ? extracted.venue : current.venue,
         category: targetCategory,
         details: mergedDetails,
+        phone: extracted.phone || current.phone,
+        email: extracted.email || current.email,
         notes: extracted.notes || current.notes
       };
     });
@@ -210,7 +212,7 @@ export function RequirementWizard() {
           {step === 2 && (
             <CategoryDetails form={form} errors={errors} onDetailsChange={changeDetails} />
           )}
-          {step === 3 && <NotesStep form={form} onChange={notes => change({ notes })} />}
+          {step === 3 && <NotesStep form={form} errors={errors} onChange={change} />}
           {step === 4 && (
             <Review
               form={form}

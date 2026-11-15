@@ -171,6 +171,41 @@ export default function RequirementDetailPage() {
           </dl>
         </div>
 
+        {/* Contact Details */}
+        {(req.phone || req.email) && (
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-5">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              Contact Information
+            </span>
+            <dl className="mt-3 grid gap-4 sm:grid-cols-2">
+              <div>
+                <dt className="text-xs text-slate-500">Phone Number</dt>
+                <dd className="mt-1 text-sm font-semibold text-slate-900">
+                  {req.phone ? (
+                    <a href={`tel:${req.phone}`} className="text-indigo-600 hover:underline">
+                      {req.phone}
+                    </a>
+                  ) : (
+                    'Not provided'
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-slate-500">Email Address</dt>
+                <dd className="mt-1 text-sm font-semibold text-slate-900">
+                  {req.email ? (
+                    <a href={`mailto:${req.email}`} className="text-indigo-600 hover:underline">
+                      {req.email}
+                    </a>
+                  ) : (
+                    'Not provided'
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        )}
+
         {req.notes && (
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-5">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">

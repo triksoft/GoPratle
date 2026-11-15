@@ -353,6 +353,8 @@ Expected JSON output format:
   "location": "City or area, e.g. Bangalore",
   "venue": "Specific venue name or empty string",
   "category": "planner" | "performer" | "crew",
+  "phone": "User contact phone number or empty string",
+  "email": "User contact email address or empty string",
   "details": {
     // If category is "planner":
     // "budget": numeric string or number,
@@ -410,7 +412,9 @@ We are gathering event requirements to pre-fill a four-step event requirement fo
      - crewRole (e.g. "Sound engineer", "Decorator", "Lighting technician")
      - shiftHours (numeric string or number)
      - teamSize (numeric string or number)
-3. Notes:
+3. Notes & Contact Information:
+   - phone: User contact phone number if mentioned (e.g. "+91 9876543210")
+   - email: User contact email address if mentioned (e.g. "rohan@example.com")
    - notes: Any special requests, themes, music genres, or additional context.
 
 CONVERSATION INSTRUCTIONS:
@@ -438,6 +442,8 @@ Output JSON Format:
     "location": "...",
     "venue": "",
     "category": "planner" | "performer" | "crew" | "",
+    "phone": "...",
+    "email": "...",
     "details": { ... },
     "notes": "...",
     "missingFields": ["..."]
@@ -547,6 +553,8 @@ export function normalizeExtractedDetails(data: any): ExtractedAiDetails {
     location: typeof data.location === 'string' ? data.location.trim() : '',
     venue: typeof data.venue === 'string' ? data.venue.trim() : '',
     category: validCategory as any,
+    phone: typeof data.phone === 'string' ? data.phone.trim() : typeof data.phoneNumber === 'string' ? data.phoneNumber.trim() : '',
+    email: typeof data.email === 'string' ? data.email.trim() : typeof data.emailId === 'string' ? data.emailId.trim() : '',
     details: normalizedDetails,
     notes: typeof data.notes === 'string' ? data.notes.trim() : '',
     missingFields: missing

@@ -179,4 +179,50 @@ describe('Requirements API (Dashboard & Calendar)', () => {
     expect(response.status).toBe(422);
     expect(response.body.errors.status).toBeDefined();
   });
+
+  it('stores phone number and email when creating requirement', async () => {
+    const create = vi.fn().mockImplementation((input: any) => Promise.resolve({ _id: 'req-contact', ...input }));
+    const app = createApp({ repository: { create, findOne: vi.fn() } });
+    const payload = {
+      ...sampleRequirement,
+      phone: '+91 98765 43210',
+      email: 'organizer@event.com',
+      clientSubmissionId: '123e4567-e89b-12d3-a456-426614174000'
+    };
+
+    const response = await request(app)
+      .post('/api/requirements')
+      .send(payload);
+
+    expect(response.status).toBe(201);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phone: '+91 98765 43210',
+        email: 'organizer@event.com'
+      })
+    );
+  });
+
+  it('accepts phoneNumber and emailId aliases when creating requirement', async () => {
+    const create = vi.fn().mockImplementation((input: any) => Promise.resolve({ _id: 'req-aliases', ...input }));
+    const app = createApp({ repository: { create, findOne: vi.fn() } });
+    const payload = {
+      ...sampleRequirement,
+      phoneNumber: '9876543210',
+      emailId: 'alias@event.com',
+      clientSubmissionId: '123e4567-e89b-12d3-a456-426614174001'
+    };
+
+    const response = await request(app)
+      .post('/api/requirements')
+      .send(payload);
+
+    expect(response.status).toBe(201);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phone: '9876543210',
+        email: 'alias@event.com'
+      })
+    );
+  });
 });

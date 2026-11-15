@@ -19,6 +19,8 @@ export type RequirementInput = {
   venue?: string;
   category: Category;
   details: RequirementDetails;
+  phone?: string;
+  email?: string;
   notes?: string;
   clientSubmissionId: string;
   status?: RequirementStatus;

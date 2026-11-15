@@ -35,6 +35,8 @@ export type CrewDetails = {
 
 export type RequirementForm = EventBasics & {
   details: PlannerDetails | PerformerDetails | CrewDetails;
+  phone?: string;
+  email?: string;
   notes: string;
   clientSubmissionId: string;
 };
@@ -84,6 +86,8 @@ export type AiExtractResponse = {
     location?: string;
     venue?: string;
     category?: Category | '';
+    phone?: string;
+    email?: string;
     details?: Record<string, string>;
     notes?: string;
     missingFields?: string[];
@@ -143,6 +147,8 @@ export const initialRequirement = (): RequirementForm => ({
   venue: '',
   category: '',
   details: emptyDetails(''),
+  phone: '',
+  email: '',
   notes: '',
   clientSubmissionId: crypto.randomUUID()
 });

@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+const phoneRegex = /^[+]?[\d\s\-().]{7,25}$/;
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const common = {
   eventName: z.string().trim().min(1, 'Event name is required.').max(120),
   eventType: z.string().trim().min(1, 'Event type is required.').max(80),
@@ -8,6 +11,24 @@ const common = {
   endDate: z.string().date('End date must use YYYY-MM-DD.').optional().or(z.literal('')),
   location: z.string().trim().min(1, 'Location is required.').max(160),
   venue: z.string().trim().max(160).optional(),
+  phone: z
+    .string()
+    .trim()
+    .max(30, 'Phone number is too long.')
+    .refine(val => !val || phoneRegex.test(val), {
+      message: 'Please provide a valid phone number.'
+    })
+    .optional()
+    .or(z.literal('')),
+  email: z
+    .string()
+    .trim()
+    .max(160, 'Email address is too long.')
+    .refine(val => !val || emailRegex.test(val), {
+      message: 'Please provide a valid email address.'
+    })
+    .optional()
+    .or(z.literal('')),
   notes: z.string().trim().max(1000).optional(),
   clientSubmissionId: z.string().uuid('A valid submission ID is required.'),
   status: z.enum(['new', 'reviewing', 'contacted', 'confirmed', 'closed']).default('new')

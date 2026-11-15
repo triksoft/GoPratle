@@ -171,6 +171,41 @@ export function RequirementDetailModal({ requirement, onClose, onStatusUpdated }
             </dl>
           </div>
 
+          {/* Contact Details */}
+          {(currentReq.phone || currentReq.email) && (
+            <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                Contact Information
+              </span>
+              <dl className="mt-2.5 grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs text-slate-500">Phone Number</dt>
+                  <dd className="mt-0.5 font-semibold text-slate-900">
+                    {currentReq.phone ? (
+                      <a href={`tel:${currentReq.phone}`} className="text-indigo-600 hover:underline">
+                        {currentReq.phone}
+                      </a>
+                    ) : (
+                      'Not provided'
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-500">Email Address</dt>
+                  <dd className="mt-0.5 font-semibold text-slate-900">
+                    {currentReq.email ? (
+                      <a href={`mailto:${currentReq.email}`} className="text-indigo-600 hover:underline">
+                        {currentReq.email}
+                      </a>
+                    ) : (
+                      'Not provided'
+                    )}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          )}
+
           {/* Notes */}
           {currentReq.notes && (
             <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4">

@@ -41,7 +41,13 @@ export function requirementRouter(repository: RequirementRepository = Requiremen
   // POST /api/requirements - Create requirement (Idempotent)
   router.post('/', async (req: Request, res: Response, next: NextFunction) => {
     const idempotencyKey = req.get('X-Idempotency-Key') ?? req.body?.clientSubmissionId;
-    const parsed = requirementSchema.safeParse({ ...req.body, clientSubmissionId: idempotencyKey });
+    const body = {
+      ...req.body,
+      phone: req.body?.phone ?? req.body?.phoneNumber,
+      email: req.body?.email ?? req.body?.emailId,
+      clientSubmissionId: idempotencyKey
+    };
+    const parsed = requirementSchema.safeParse(body);
     if (!parsed.success) {
       return res.status(422).json({
         message: 'Please correct the invalid fields.',
@@ -98,7 +104,15 @@ export function requirementRouter(repository: RequirementRepository = Requiremen
 
     if (search) {
       const s = new RegExp(escapeRegex(search), 'i');
-      filter.$or = [{ eventName: s }, { eventType: s }, { location: s }, { venue: s }, { notes: s }];
+      filter.$or = [
+        { eventName: s },
+        { eventType: s },
+        { location: s },
+        { venue: s },
+        { notes: s },
+        { phone: s },
+        { email: s }
+      ];
     }
 
     try {
